@@ -76,9 +76,9 @@ class DeadReckoning(Node):
         # MATRIZ DE COVARIANZA DEL ESTADO (3x3)
         # Representa incertidumbre en [x, y, theta]
         self.cov = np.array([
-            [0.01, 0.0,  0.0],   # Varianza en X
-            [0.0,  0.01, 0.0],   # Varianza en Y
-            [0.0,  0.0,  0.01]   # Varianza en theta
+            [0.5, 0.0,  0.0],   # Varianza en X
+            [0.0,  0.5, 0.0],   # Varianza en Y
+            [0.0,  0.0,  0.43]   # Varianza en theta
         ])
         self.cov_prev = self.cov.copy()
 
@@ -114,9 +114,9 @@ class DeadReckoning(Node):
         ])
         
         # PARÁMETROS DE TRANSFORMACIÓN CÁMARA-ROBOT (CORREGIDOS)
-        self.cam_offset_x = 0.03    # Distancia cámara desde centro del robot en X (m)
+        self.cam_offset_x = 0.075    # Distancia cámara desde centro del robot en X (m)
         self.cam_offset_y = 0.0     # Offset lateral de cámara (m)
-        self.cam_offset_z = 0.087   # Altura de cámara sobre la base (m)
+        self.cam_offset_z = 0.065   # Altura de cámara sobre la base (m)
         
         # FACTORES DE VALIDACIÓN
         self.max_distance_innovation = 0.5      # Máxima innovación de distancia permitida (m)
@@ -157,78 +157,92 @@ class DeadReckoning(Node):
             self.aruco_data = msg
             self.get_logger().info(f"ArUco detectado: {len(msg.markers)} marcadores")
 
+    def rotation_matrix(self, theta, axis):
+        if axis == 'x':
+            return np.array([
+                [1, 0, 0],
+                [0, np.cos(theta), -np.sin(theta)],
+                [0, np.sin(theta),  np.cos(theta)]
+            ])
+        elif axis == 'y':
+            return np.array([
+                [np.cos(theta), 0, np.sin(theta)],
+                [0, 1, 0],
+                [-np.sin(theta), 0, np.cos(theta)]
+            ])
+        elif axis == 'z':
+            return np.array([
+                [np.cos(theta), -np.sin(theta), 0],
+                [np.sin(theta),  np.cos(theta), 0],
+                [0, 0, 1]
+            ])
+        else:
+            raise ValueError(f"Eje desconocido: {axis}")
+
+
     def transform_aruco_to_robot_frame(self, aruco):
-        """
-        Transforma la pose del ArUco del frame de cámara al frame del robot
-        
-        TRANSFORMACIÓN CORREGIDA SEGÚN TUS ESPECIFICACIONES:
-        - Sistema de coordenadas del robot: X=adelante, Y=izquierda, Z=arriba
-        - Cámara montada con rotación: +90° en Y (pitch), -90° en Z (yaw)
-        
-        Args:
-            aruco: Objeto ArUco con pose en frame de cámara
-        
-        Returns:
-            tuple: (x_aruco_robot, y_aruco_robot) en frame del robot
-        """
-        # Posición del ArUco en frame de cámara (convención OpenCV/ROS)
-        x_cam = aruco.pose.position.x  # Lateral derecho de cámara
-        y_cam = aruco.pose.position.y  # Hacia abajo de cámara  
-        z_cam = aruco.pose.position.z  # Profundidad de cámara (adelante)
-        
-        # LOG para debugging
-        self.get_logger().info(f"ArUco en frame cámara: x={x_cam:.3f}, y={y_cam:.3f}, z={z_cam:.3f}")
-        
-        # APLICAR TRANSFORMACIONES SEGÚN TUS ESPECIFICACIONES
-        # Rotación +90° en Y (pitch): intercambia X y Z, invierte X
-        # Después rotación -90° en Z (yaw): intercambia X e Y, invierte Y
-        
-        # Paso 1: Rotación +90° en Y
-        # Matriz R_y(+90°) = [[0, 0, 1], [0, 1, 0], [-1, 0, 0]]
-        x_temp = z_cam       # x_new = z_old
-        y_temp = y_cam       # y_new = y_old  
-        z_temp = -x_cam      # z_new = -x_old
-        
-        # Paso 2: Rotación -90° en Z
-        # Matriz R_z(-90°) = [[0, 1, 0], [-1, 0, 0], [0, 0, 1]]
-        x_rotated = y_temp   # x_new = y_old
-        y_rotated = -x_temp  # y_new = -x_old
-        z_rotated = z_temp   # z_new = z_old
-        
-        # Agregar offset de montaje de cámara en el robot
-        x_robot = x_rotated + self.cam_offset_x
-        y_robot = y_rotated + self.cam_offset_y
-        
-        # Validación: verificar que la detección sea válida
-        if z_cam <= 0:
-            self.get_logger().warn(f"ArUco detectado con profundidad inválida (z_cam={z_cam:.3f})")
-            return None, None
-            
-        # Validación de distancia razonable
-        distance = np.sqrt(x_robot**2 + y_robot**2)
-        if distance > 5.0:  # Máximo 5 metros
-            self.get_logger().warn(f"ArUco muy lejos (distancia={distance:.3f}m)")
-            return None, None
-            
-        self.get_logger().info(f"ArUco en frame robot: x={x_robot:.3f}, y={y_robot:.3f}")
-        
-        return x_robot, y_robot
+        # Rotaciones requeridas según la imagen (Y+90°, Z+90°)
+        R_y = self.rotation_matrix(np.pi/2, 'y')
+        R_z = self.rotation_matrix(np.pi/2, 'z')
+        R_rc = R_z @ R_y  # Rotación compuesta cámara → robot
+
+        # Traslacion camara en el robot
+        t_rc = np.array([[self.cam_offset_x], [0.0], [self.cam_offset_z]])
+
+        # Matriz de transformación cámara → robot
+        T_rc = np.vstack((np.hstack((R_rc, t_rc)), [[0, 0, 0, 1]]))
+
+        # Rotación del ArUco desde rvec (convertido a matriz)
+        q = aruco.pose.orientation
+        _, pitch, _ = euler_from_quaternion([q.x, q.y, q.z, q.w])
+        R_cm = self.rotation_matrix(pitch, 'y')  # Suponemos solo rotación en Y
+
+        t_cm = np.array([[aruco.pose.position.x],
+                        [aruco.pose.position.y],
+                        [aruco.pose.position.z]])
+        T_cm = np.vstack((np.hstack((R_cm, t_cm)), [[0, 0, 0, 1]]))
+
+        # Composición total
+        T_rm = T_rc @ T_cm
+
+        x_aruco = T_rm[0, 3]
+        y_aruco = T_rm[1, 3]
+
+        return x_aruco, y_aruco
+
 
     def normalize_angle(self, angle):
         """
         Normaliza un ángulo al rango [-π, π]
         """
         return np.arctan2(np.sin(angle), np.cos(angle))
+    
     def ekf_correction(self, aruco_data):
         for aruco in aruco_data.markers:
             if aruco.marker_id not in self.aruco_map:
                 self.get_logger().warn(f"ArUco ID {aruco.marker_id} no está en el mapa")
                 continue
 
-            x_aruco_robot, y_aruco_robot = self.transform_aruco_to_robot_frame(aruco)
-            if x_aruco_robot is None or y_aruco_robot is None:
-                self.get_logger().warn(f"Transformación inválida para ArUco {aruco.marker_id}")
-                continue
+            # === TRANSFORMACIÓN CORREGIDA CAMARA → ROBOT ===
+            # Orden correcto: Ry(pi/2) @ Rz(pi/2)
+            R_y = self.rotation_matrix(np.pi/2, 'y')
+            R_z = self.rotation_matrix(np.pi/2, 'z')
+            R_rc = R_y @ R_z
+            t_rc = np.array([[self.cam_offset_x], [0.0], [self.cam_offset_z]])
+            T_rc = np.vstack((np.hstack((R_rc, t_rc)), [[0, 0, 0, 1]]))
+
+            # === TRANSFORMACIÓN DEL ARUCO DETECTADO ===
+            q = aruco.pose.orientation
+            _, pitch, _ = euler_from_quaternion([q.x, q.y, q.z, q.w])
+            R_cm = self.rotation_matrix(pitch, 'y')
+            t_cm = np.array([[aruco.pose.position.x],
+                            [aruco.pose.position.y],
+                            [aruco.pose.position.z]])
+            T_cm = np.vstack((np.hstack((R_cm, t_cm)), [[0, 0, 0, 1]]))
+
+            T_rm = T_rc @ T_cm
+            x_aruco_robot = T_rm[0, 3]
+            y_aruco_robot = T_rm[1, 3]
 
             aruco_world_x, aruco_world_y, aruco_yaw = self.aruco_map[aruco.marker_id]
             dx_world = aruco_world_x - self.pose[0]
@@ -304,6 +318,7 @@ class DeadReckoning(Node):
             self.get_logger().info(f"Corrección aplicada: dx={correction[0,0]*smoothing:.3f}, "
                                 f"dy={correction[1,0]*smoothing:.3f}, dtheta={correction[2,0]*smoothing*180/np.pi:.1f}°")
             break
+
 
     def callback_pub(self):
         """
