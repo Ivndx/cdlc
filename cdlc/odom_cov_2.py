@@ -94,16 +94,16 @@ class DeadReckoning(Node):
         
         # MAPA DE ARUCOS CONOCIDOS: ID -> (x_world, y_world, yaw_world)
         self.aruco_map = {
-            0: (-3.95, -1.0, 0.0),                # aruco_0
-            1: (-1.0,  3.45, -np.pi/2),           # aruco_1
-            2: ( 1.95, -1.45, 3*np.pi/4),         # aruco_2
-            3: ( 0.1,  -2.0,  np.pi/2),           # aruco_3
-            4: ( 2.5,   4.0, -np.pi/2),           # aruco_4
-            5: (-1.0, -3.5,  np.pi/2),            # aruco_5
-            6: ( 0.5,  2.9,  -np.pi/2),           # aruco_6
-            7: ( 0.95,  0.0,  np.pi),             # aruco_7_start
-            8: (-2.0,  1.5,  -2.5),               # aruco_8_box (4.496 rad ≈ -2.5 rad)
-            9: ( 3.45, 2.95, -np.pi/2),           # aruco_9
+            0: (-3.95, -1.0, 0.0),
+            1: (-1.0, 3.45, 3*np.pi/2),
+            2: (1.95, -1.45, 2.356),
+            3: (0.1, -2.0, np.pi/2),
+            4: (2.5, 4.0, 3*np.pi/2),
+            5: (-1.0, -3.5, np.pi/2),
+            6: (0.5, 2.9, 3*np.pi/2),
+            7: (0.95, 0.0, np.pi),
+            8: (-2.0, 1.5, 4.496),
+            9: (3.45, 2.95, 3*np.pi/2),
         }
                 
         # MATRIZ DE RUIDO DE MEDICIÓN ARUCO (2x2)
