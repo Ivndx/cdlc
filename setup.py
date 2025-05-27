@@ -1,3 +1,6 @@
+import os
+from glob import glob
+from setuptools import setup
 from setuptools import find_packages, setup
 
 package_name = 'cdlc'
@@ -10,6 +13,9 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        (os.path.join('share',package_name),glob('launch/launch.[pxy][yam]')),
+        (os.path.join('share',package_name),glob('launch/.[pxy][yam]')),
+        (os.path.join('share',package_name, 'config'),glob('config/*.yaml')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -20,6 +26,12 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+        "test_lidar = cdlc.test_lidar:main",
+        "mybug = cdlc.mybug:main",
+        "odometry_covariance = cdlc.odometry_covariance:main",
+        "bug_2 = cdlc.bug_2:main",
+        "odom_cov_2 = cdlc.odom_cov_2:main",
+        "bug_two = cdlc.bug_two:main",
         ],
     },
 )

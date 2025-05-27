@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<launch>
+  <let name="xacro_path" 
+       value="$(find-pkg-share puzzlebot_description)/urdf/mcr2_robots/puzzlebot_jetson_lidar_ed.xacro" />
+
+  <include file="$(find-pkg-share puzzlebot_gazebo)/launch/bringup_simulation_simple_launch.py" />
+  <node pkg="rviz2" exec="rviz2" args= "-d /home/ivndx/ros2_ws/src/bugs/rviz/navigation_config.rviz"/>
+
+
+  <group>
+    <push-ros-namespace namespace="estimated"/>
+    <node pkg="robot_state_publisher" exec="robot_state_publisher">
+      <param name="robot_description" 
+             value="$(command 'xacro $(var xacro_path)')" />
+      <param name="frame_prefix" value="estimated/" />
+    </node>
+    
+    <node pkg="cdlc" exec="odom_cov_2" output="screen"/>
+    <node pkg="cdlc" exec="bug_two" output="screen"/>
+    
+  
+  </group>
+</launch>
+
