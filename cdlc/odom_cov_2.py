@@ -110,8 +110,8 @@ class DeadReckoning(Node):
         # MATRIZ DE RUIDO DE MEDICIÓN ARUCO (2x2)
         # [distancia, ángulo_relativo]
         self.R_aruco = np.array([
-            [0.5, 0.0],        # Varianza en distancia (2cm std)
-            [0.0, 0.5]         # Varianza en ángulo (0.05 rad² ≈ 13° std)
+            [0.015, 0.0],        # Varianza en distancia (2cm std)
+            [0.0, 0.4]         # Varianza en ángulo (0.05 rad² ≈ 13° std)
         ])
         
         # PARÁMETROS DE TRANSFORMACIÓN CÁMARA-ROBOT (CORREGIDOS)
@@ -297,7 +297,12 @@ class DeadReckoning(Node):
             innovation = np.array([[innovation_distance], [innovation_angle]])
             correction = K @ innovation
 
-            smoothing = 0.25
+            # ❗️Ignorar correcciones insignificantes
+            if np.linalg.norm(correction[:2]) < 1e-4 and abs(correction[2]) < 1e-2:
+                self.get_logger().info(f"Corrección insignificante ignorada para ArUco {aruco.marker_id}")
+                continue
+
+            smoothing = 1.0
             self.pose[0] += correction[0, 0] * smoothing
             self.pose[1] += correction[1, 0] * smoothing
             self.pose[2] += correction[2, 0] * smoothing
