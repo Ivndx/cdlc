@@ -92,6 +92,7 @@ class DeadReckoning(Node):
         self.aruco_detected = False
         self.aruco_data = None
         
+        #esta bien 
         # MAPA DE ARUCOS CONOCIDOS: ID -> (x_world, y_world, yaw_world)
         self.aruco_map = {
             0: (-3.95, -1.0, 0.0),
