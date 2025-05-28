@@ -59,69 +59,56 @@ class DeadReckoning(Node):
         self.vel_r = 0.0        # Velocidad angular rueda derecha
         self.vel_l = 0.0        # Velocidad angular rueda izquierda
         
-        # ESTADO DEL ROBOT [x, y, theta]
-        self.xf = 0.0           # Posición X en mundo
-        self.yf = 0.0           # Posición Y en mundo
-        self.angf = 0.0         # Orientación theta
-        self.pose = [self.xf, self.yf, self.angf]
+        # ESTADO DEL ROBOT COMO VECTOR NUMPY (CORREGIDO)
+        self.mu = np.zeros((3, 1))  # [x, y, theta] como vector columna
+        
+        # Para compatibilidad con el resto del código
+        self.xf = 0.0
+        self.yf = 0.0
+        self.angf = 0.0
 
         # PARÁMETROS FÍSICOS DEL ROBOT
         self.r = 0.0505         # Radio de las ruedas (m)
         self.L = 0.183          # Distancia entre ruedas (m)
 
-        # PARÁMETROS DE RUIDO PARA EKF
-        self.sig2r = 0.0273        # Varianza rueda derecha (reducida)
-        self.sig2l = 0.0067       # Varianza rueda izquierda (reducida)
+        # PARÁMETROS DE RUIDO PARA EKF (SIMPLIFICADOS)
+        self.kr = 0.8           # Factor de ruido rueda derecha
+        self.kl = 0.8           # Factor de ruido rueda izquierda
 
-        # MATRIZ DE COVARIANZA DEL ESTADO (3x3)
-        # Representa incertidumbre en [x, y, theta]
-        self.cov = np.array([
-            [0.5, 0.0,  0.0],   # Varianza en X
-            [0.0,  0.5, 0.0],   # Varianza en Y
-            [0.0,  0.0,  0.43]   # Varianza en theta
-        ])
-        self.cov_prev = self.cov.copy()
-
-        # MATRIZ DE RUIDO DE LAS RUEDAS (2x2)
-        self.L_noise = np.array([
-            [self.sig2r, 0.0],
-            [0.0, self.sig2l]
-        ])
+        # MATRIZ DE COVARIANZA DEL ESTADO (3x3) - INICIALIZACIÓN CONSERVADORA
+        self.Sigma = np.eye(3) * 0.01
 
         # VARIABLES PARA DETECCIÓN DE ARUCO
         self.aruco_detected = False
-        self.aruco_data = None
+        self.aruco_data = []
         
-        #esta bien 
-        # MAPA DE ARUCOS CONOCIDOS: ID -> (x_world, y_world, yaw_world)
+        # MAPA DE ARUCOS CONOCIDOS: ID -> (x_world, y_world) - SIMPLIFICADO
         self.aruco_map = {
-            0: (-3.95, -1.0, 0.0),
-            1: (-1.0, 3.45, 3*np.pi/2),
-            2: (1.95, -1.45, 2.356),
-            3: (0.1, -2.0, np.pi/2),
-            4: (2.5, 4.0, 3*np.pi/2),
-            5: (-1.0, -3.5, np.pi/2),
-            6: (0.5, 2.9, 3*np.pi/2),
-            7: (0.95, 0.0, np.pi),
-            8: (-2.0, 1.5, 4.496),
-            9: (3.45, 2.95, 3*np.pi/2),
+            0: (-3.95, -1.0),
+            1: (-1.0, 3.45),
+            2: (1.95, -1.45),
+            3: (0.1, -2.0),
+            4: (2.5, 4.0),
+            5: (-1.0, -3.5),
+            6: (0.5, 2.9),
+            7: (0.95, 0.0),
+            8: (-2.0, 1.5),
+            9: (3.45, 2.95),
         }
                 
-        # MATRIZ DE RUIDO DE MEDICIÓN ARUCO (2x2)
-        # [distancia, ángulo_relativo]
-        self.R_aruco = np.array([
-            [0.5, 0.0],        # Varianza en distancia (2cm std)
-            [0.0, 0.5]         # Varianza en ángulo (0.05 rad² ≈ 13° std)
+        # MATRIZ DE RUIDO DE MEDICIÓN ARUCO (SIMPLIFICADA)
+        self.Rk = np.array([
+            [1.0, -0.0002376],
+            [-0.0002376, 2.35]
         ])
         
-        # PARÁMETROS DE TRANSFORMACIÓN CÁMARA-ROBOT (CORREGIDOS)
-        self.cam_offset_x = 0.075    # Distancia cámara desde centro del robot en X (m)
-        self.cam_offset_y = 0.0     # Offset lateral de cámara (m)
-        self.cam_offset_z = 0.065   # Altura de cámara sobre la base (m)
-        
-        # FACTORES DE VALIDACIÓN
-        self.max_distance_innovation = 0.5      # Máxima innovación de distancia permitida (m)
-        self.max_angle_innovation = np.pi     # Máxima innovación de ángulo permitida (60°)
+        # MATRIZ DE TRANSFORMACIÓN CÁMARA-ROBOT (SIMPLIFICADA)
+        self.T_cam_robot = np.array([
+            [0.0, 0.0, 1.0, 0.075],
+            [-1.0, 0.0, 0.0, 0.0],
+            [0.0, -1.0, 0.0, 0.065],
+            [0.0, 0.0, 0.0, 1.0]
+        ])
         
     def clock_callback(self, msg):
         """
@@ -151,172 +138,94 @@ class DeadReckoning(Node):
         
     def aruco_callback(self, msg):
         """
-        Callback para recibir detecciones de ArUco
+        Callback para recibir detecciones de ArUco - SIMPLIFICADO
         """
         if len(msg.markers) > 0:
             self.aruco_detected = True
-            self.aruco_data = msg
+            self.aruco_data = msg.markers
             self.get_logger().info(f"ArUco detectado: {len(msg.markers)} marcadores")
-
-    def rotation_matrix(self, theta, axis):
-        if axis == 'x':
-            return np.array([
-                [1, 0, 0],
-                [0, np.cos(theta), -np.sin(theta)],
-                [0, np.sin(theta),  np.cos(theta)]
-            ])
-        elif axis == 'y':
-            return np.array([
-                [np.cos(theta), 0, np.sin(theta)],
-                [0, 1, 0],
-                [-np.sin(theta), 0, np.cos(theta)]
-            ])
-        elif axis == 'z':
-            return np.array([
-                [np.cos(theta), -np.sin(theta), 0],
-                [np.sin(theta),  np.cos(theta), 0],
-                [0, 0, 1]
-            ])
-        else:
-            raise ValueError(f"Eje desconocido: {axis}")
-
-
-    def transform_aruco_to_robot_frame(self, aruco):
-        # Rotaciones requeridas según la imagen (Y+90°, Z+90°)
-        R_y = self.rotation_matrix(np.pi/2, 'y')
-        R_z = self.rotation_matrix(np.pi/2, 'z')
-        R_rc = R_z @ R_y  # Cámara → robot
-
-        t_rc = np.array([[self.cam_offset_x], [0.0], [self.cam_offset_z]])
-        T_rc = np.vstack((np.hstack((R_rc, t_rc)), [[0, 0, 0, 1]]))
-
-        # Obtener matriz de rotación desde quaternion (completo)
-        q = aruco.pose.orientation
-        R_cm = tf_transformations.quaternion_matrix([q.x, q.y, q.z, q.w])[:3, :3]
-
-        t_cm = np.array([
-            [aruco.pose.position.x],
-            [aruco.pose.position.y],
-            [aruco.pose.position.z]
-        ])
-        T_cm = np.vstack((np.hstack((R_cm, t_cm)), [[0, 0, 0, 1]]))
-
-        # Transformación final: robot ← cámara ← marcador
-        T_rm = T_rc @ T_cm
-
-        x_aruco = T_rm[0, 3]
-        y_aruco = T_rm[1, 3]
-
-        return x_aruco, y_aruco
 
     def normalize_angle(self, angle):
         """
         Normaliza un ángulo al rango [-π, π]
         """
-        return np.arctan2(np.sin(angle), np.cos(angle))
+        return math.atan2(math.sin(angle), math.cos(angle))
     
     def ekf_correction(self, aruco_data):
-        for aruco in aruco_data.markers:
-            if aruco.marker_id not in self.aruco_map:
-                self.get_logger().warn(f"ArUco ID {aruco.marker_id} no está en el mapa")
+        """
+        Corrección EKF simplificada usando mediciones de ArUco
+        """
+        for aruco in aruco_data:
+            id = aruco.marker_id
+            if id not in self.aruco_map:
+                self.get_logger().warn(f"ArUco ID {id} no está en el mapa")
                 continue
 
-            # === TRANSFORMACIÓN CORREGIDA CAMARA → ROBOT ===
-            # Orden correcto: Ry(pi/2) @ Rz(pi/2)
-            R_y = self.rotation_matrix(np.pi/2, 'y')
-            R_z = self.rotation_matrix(np.pi/2, 'z')
-            R_rc = R_y @ R_z
-            t_rc = np.array([[self.cam_offset_x], [0.0], [self.cam_offset_z]])
-            T_rc = np.vstack((np.hstack((R_rc, t_rc)), [[0, 0, 0, 1]]))
-
-            # === TRANSFORMACIÓN DEL ARUCO DETECTADO ===
-            q = aruco.pose.orientation
-            _, pitch, _ = euler_from_quaternion([q.x, q.y, q.z, q.w])
-            R_cm = self.rotation_matrix(pitch, 'y')
-            t_cm = np.array([[aruco.pose.position.x],
-                            [aruco.pose.position.y],
-                            [aruco.pose.position.z]])
-            T_cm = np.vstack((np.hstack((R_cm, t_cm)), [[0, 0, 0, 1]]))
-
-            T_rm = T_rc @ T_cm
-            x_aruco_robot = T_rm[0, 3]
-            y_aruco_robot = T_rm[1, 3]
-
-            aruco_world_x, aruco_world_y, aruco_yaw = self.aruco_map[aruco.marker_id]
-            dx_world = aruco_world_x - self.pose[0]
-            dy_world = aruco_world_y - self.pose[1]
-
-            cos_theta = np.cos(self.pose[2])
-            sin_theta = np.sin(self.pose[2])
-            x_aruco_pred = cos_theta * dx_world + sin_theta * dy_world
-            y_aruco_pred = -sin_theta * dx_world + cos_theta * dy_world
-
-            distance_measured = np.sqrt(x_aruco_robot**2 + y_aruco_robot**2)
-            angle_measured = np.arctan2(y_aruco_robot, x_aruco_robot)
-            distance_predicted = np.sqrt(x_aruco_pred**2 + y_aruco_pred**2)
-            angle_predicted = np.arctan2(y_aruco_pred, x_aruco_pred)
-
-            if distance_measured <= 0 or distance_predicted <= 0:
-                self.get_logger().warn(f"Distancia inválida para ArUco {aruco.marker_id}")
+            # TRANSFORMACIÓN SIMPLIFICADA CÁMARA → ROBOT
+            pos = np.array([
+                [aruco.pose.position.x],
+                [aruco.pose.position.y],
+                [aruco.pose.position.z],
+                [1.0]
+            ])
+            pos_robot = self.T_cam_robot @ pos
+            
+            # Filtrar ArUcos muy lejanos
+            if np.linalg.norm(pos_robot[:2]) > 2.5:
+                self.get_logger().warn(f"ArUco {id} descartado por estar muy lejos: {np.linalg.norm(pos_robot[:2]):.2f}m")
                 continue
 
-            innovation_distance = distance_measured - distance_predicted
-            innovation_angle = self.normalize_angle(angle_measured - angle_predicted)
-
-            if abs(innovation_distance) > self.max_distance_innovation:
-                self.get_logger().warn(f"Innovación de distancia muy grande para ArUco {aruco.marker_id}: {innovation_distance:.3f}m")
-                continue
-
-            if abs(innovation_angle) > self.max_angle_innovation:
-                self.get_logger().warn(f"Innovación de ángulo muy grande para ArUco {aruco.marker_id}: {innovation_angle*180/np.pi:.1f}°")
-                continue
-
-            if distance_predicted < 1e-6:
-                continue
-
-            dh_x = dx_world
-            dh_y = dy_world
-            dx_pred_dtheta = -sin_theta * dx_world + cos_theta * dy_world
-            dy_pred_dtheta = -cos_theta * dx_world - sin_theta * dy_world
-
-            H = np.array([
-                [-cos_theta * dh_x/distance_predicted - sin_theta * dh_y/distance_predicted,
-                sin_theta * dh_x/distance_predicted - cos_theta * dh_y/distance_predicted,
-                (x_aruco_pred * dx_pred_dtheta + y_aruco_pred * dy_pred_dtheta) / distance_predicted],
-                [sin_theta * dh_x/(distance_predicted**2) - cos_theta * dh_y/(distance_predicted**2),
-                cos_theta * dh_x/(distance_predicted**2) + sin_theta * dh_y/(distance_predicted**2),
-                (x_aruco_pred * dy_pred_dtheta - y_aruco_pred * dx_pred_dtheta) / (distance_predicted**2) - 1.0]
+            # MEDICIÓN: [distancia, ángulo_relativo]
+            z = np.array([
+                [np.linalg.norm(pos_robot[:2])],
+                [math.atan2(pos_robot[1, 0], pos_robot[0, 0])]
             ])
 
-            S = H @ self.cov @ H.T + self.R_aruco
+            # PREDICCIÓN DE LA MEDICIÓN
+            dx = self.aruco_map[id][0] - self.mu[0, 0]
+            dy = self.aruco_map[id][1] - self.mu[1, 0]
+            dist = math.hypot(dx, dy)
+            angle = self.normalize_angle(math.atan2(dy, dx) - self.mu[2, 0])
+            h = np.array([[dist], [angle]])
+
+            # JACOBIANO SIMPLIFICADO
+            G = np.array([
+                [-dx / dist, -dy / dist, 0.0],
+                [dy / (dx**2 + dy**2), -dx / (dx**2 + dy**2), -1.0]
+            ])
+
+            # MATRIZ DE INNOVACIÓN
+            S = G @ self.Sigma @ G.T + self.Rk
+            
             try:
-                K = self.cov @ H.T @ np.linalg.inv(S)
+                # GANANCIA DE KALMAN
+                K = self.Sigma @ G.T @ np.linalg.inv(S)
             except np.linalg.LinAlgError:
                 self.get_logger().warn("Error al invertir matriz S, ignorando medición ArUco")
                 continue
 
-            innovation = np.array([[innovation_distance], [innovation_angle]])
-            correction = K @ innovation
+            # INNOVACIÓN
+            innovation = z - h
+            innovation[1, 0] = self.normalize_angle(innovation[1, 0])  # Normalizar ángulo
 
-            smoothing = 0.1
-            self.pose[0] += correction[0, 0] * smoothing
-            self.pose[1] += correction[1, 0] * smoothing
-            self.pose[2] += correction[2, 0] * smoothing
-            self.pose[2] = self.normalize_angle(self.pose[2])
+            self.get_logger().info(f"ArUco {id}: dist_innov={innovation[0,0]:.3f}m, "
+                                 f"ang_innov={math.degrees(innovation[1,0]):.1f}°")
 
-            I = np.eye(3)
-            self.cov = (I - K @ H) @ self.cov
-            self.cov = (self.cov + self.cov.T) / 2
-            if np.any(np.linalg.eigvals(self.cov) <= 0):
+            # CORRECCIÓN DEL ESTADO
+            self.mu += K @ innovation
+            self.mu[2, 0] = self.normalize_angle(self.mu[2, 0])
+
+            # ACTUALIZACIÓN DE COVARIANZA
+            self.Sigma = self.Sigma - K @ G @ self.Sigma
+            
+            # Asegurar que la covarianza sea simétrica y positiva definida
+            self.Sigma = (self.Sigma + self.Sigma.T) / 2
+            if np.any(np.linalg.eigvals(self.Sigma) <= 0):
                 self.get_logger().warn("Covarianza no positiva definida, reinicializando")
-                self.cov = np.eye(3) * 0.01
+                self.Sigma = np.eye(3) * 0.01
 
-            self.get_logger().info(f"ArUco {aruco.marker_id}: dist_innov={innovation_distance:.3f}m, "
-                                f"ang_innov={innovation_angle*180/np.pi:.1f}°")
-            self.get_logger().info(f"Corrección aplicada: dx={correction[0,0]*smoothing:.3f}, "
-                                f"dy={correction[1,0]*smoothing:.3f}, dtheta={correction[2,0]*smoothing*180/np.pi:.1f}°")
+            # Solo procesar el primer ArUco válido
             break
-
 
     def callback_pub(self):
         """
@@ -341,56 +250,52 @@ class DeadReckoning(Node):
             wr = self.vel_r  # Velocidad angular rueda derecha
             wl = self.vel_l  # Velocidad angular rueda izquierda
 
-            # CINEMÁTICA DIFERENCIAL CORREGIDA
-            # Verificar convención de ruedas: rueda derecha positiva hacia adelante
-            V = (r/2.0) * (wr + wl)    # Velocidad lineal del robot
-            W = (r/L) * (wr - wl)      # Velocidad angular del robot (positiva = giro antihorario)
+            # CINEMÁTICA DIFERENCIAL
+            v = r * (wr + wl) / 2.0    # Velocidad lineal del robot
+            w = r * (wr - wl) / L      # Velocidad angular del robot
 
             # Estado anterior
-            theta_prev = self.pose[2]
+            theta = self.mu[2, 0]
 
             # PREDICCIÓN DEL ESTADO (modelo de movimiento)
-            # Integración Euler con coordenadas del robot: X=adelante, Y=izquierda
-            self.pose[0] += V * math.cos(theta_prev) * dt  # Nueva posición X
-            self.pose[1] += V * math.sin(theta_prev) * dt  # Nueva posición Y  
-            self.pose[2] += W * dt                         # Nueva orientación
-            self.pose[2] = self.normalize_angle(self.pose[2])  # Normalizar ángulo
+            theta_new = self.normalize_angle(theta + w * dt)
+            x_new = self.mu[0, 0] + v * math.cos(theta) * dt
+            y_new = self.mu[1, 0] + v * math.sin(theta) * dt
 
-            # JACOBIANO DEL MODELO DE ESTADO (F_x)
-            # Derivadas parciales del nuevo estado con respecto al estado anterior
-            F_x = np.array([
-                [1.0, 0.0, -dt * V * np.sin(theta_prev)],  # ∂x_new/∂[x,y,θ]
-                [0.0, 1.0,  dt * V * np.cos(theta_prev)],  # ∂y_new/∂[x,y,θ]
-                [0.0, 0.0,  1.0]                           # ∂θ_new/∂[x,y,θ]
+            self.mu = np.array([[x_new], [y_new], [theta_new]])
+
+            # MATRIZ DE RUIDO DEL PROCESO (SIMPLIFICADA)
+            sigma_w = np.diag([self.kr * abs(wr), self.kl * abs(wl)])
+            V = (r * dt / 2.0) * np.array([
+                [math.cos(theta), math.cos(theta)],
+                [math.sin(theta), math.sin(theta)],
+                [2.0 / L, -2.0 / L]
             ])
+            Qk = V @ sigma_w @ V.T
 
-            # JACOBIANO DEL RUIDO DE CONTROL (F_u)
-            # Derivadas parciales del estado con respecto a las velocidades de ruedas
-            F_u = 0.5 * r * dt * np.array([
-                [np.cos(theta_prev), np.cos(theta_prev)],   # ∂x/∂[wr,wl]
-                [np.sin(theta_prev), np.sin(theta_prev)],   # ∂y/∂[wr,wl]
-                [2.0/L, -2.0/L]                             # ∂θ/∂[wr,wl]
+            # JACOBIANO DEL MODELO DE ESTADO (SIMPLIFICADO)
+            H = np.array([
+                [1.0, 0.0, -dt * v * math.sin(theta)],
+                [0.0, 1.0,  dt * v * math.cos(theta)],
+                [0.0, 0.0, 1.0]
             ])
-
-            # MATRIZ DE RUIDO DEL PROCESO (Q)
-            Q = F_u @ self.L_noise @ F_u.T
             
             # PREDICCIÓN DE COVARIANZA
-            self.cov = F_x @ self.cov_prev @ F_x.T + Q
+            self.Sigma = H @ self.Sigma @ H.T + Qk
 
             # === FASE DE CORRECCIÓN DEL EKF (con ArUco si disponible) ===
-            if self.aruco_detected and self.aruco_data is not None:
+            if self.aruco_detected and len(self.aruco_data) > 0:
                 self.ekf_correction(self.aruco_data)
                 # Reset de banderas
                 self.aruco_detected = False
-                self.aruco_data = None
+                self.aruco_data = []
 
             # === PUBLICACIÓN DE MENSAJES ===
             
             # Actualizar variables de clase para compatibilidad
-            self.xf = self.pose[0]
-            self.yf = self.pose[1] 
-            self.angf = self.pose[2]
+            self.xf = self.mu[0, 0]
+            self.yf = self.mu[1, 0]
+            self.angf = self.mu[2, 0]
 
             # 1. PUBLICAR POSE SIMPLE
             pose_msg = Pose()
@@ -424,15 +329,15 @@ class DeadReckoning(Node):
 
             # Covarianza de pose (6x6, pero solo usamos posición 2D + orientación)
             odom_msg.pose.covariance = [0.0] * 36
-            odom_msg.pose.covariance[0]  = self.cov[0, 0]   # var(x)
-            odom_msg.pose.covariance[1]  = self.cov[0, 1]   # cov(x,y)
-            odom_msg.pose.covariance[5]  = self.cov[0, 2]   # cov(x,θ)
-            odom_msg.pose.covariance[6]  = self.cov[1, 0]   # cov(y,x)
-            odom_msg.pose.covariance[7]  = self.cov[1, 1]   # var(y)
-            odom_msg.pose.covariance[11] = self.cov[1, 2]   # cov(y,θ)
-            odom_msg.pose.covariance[30] = self.cov[2, 0]   # cov(θ,x)
-            odom_msg.pose.covariance[31] = self.cov[2, 1]   # cov(θ,y)
-            odom_msg.pose.covariance[35] = self.cov[2, 2]   # var(θ)
+            odom_msg.pose.covariance[0]  = self.Sigma[0, 0]   # var(x)
+            odom_msg.pose.covariance[1]  = self.Sigma[0, 1]   # cov(x,y)
+            odom_msg.pose.covariance[5]  = self.Sigma[0, 2]   # cov(x,θ)
+            odom_msg.pose.covariance[6]  = self.Sigma[1, 0]   # cov(y,x)
+            odom_msg.pose.covariance[7]  = self.Sigma[1, 1]   # var(y)
+            odom_msg.pose.covariance[11] = self.Sigma[1, 2]   # cov(y,θ)
+            odom_msg.pose.covariance[30] = self.Sigma[2, 0]   # cov(θ,x)
+            odom_msg.pose.covariance[31] = self.Sigma[2, 1]   # cov(θ,y)
+            odom_msg.pose.covariance[35] = self.Sigma[2, 2]   # var(θ)
 
             self.pub_odom.publish(odom_msg)
 
@@ -455,7 +360,6 @@ class DeadReckoning(Node):
             self.pub_js.publish(js_msg)
 
             # === ACTUALIZACIÓN PARA SIGUIENTE ITERACIÓN ===
-            self.cov_prev = self.cov.copy()
             self.t_ant = self.t0
 
 
