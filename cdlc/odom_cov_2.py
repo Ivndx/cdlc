@@ -18,9 +18,8 @@ from builtin_interfaces.msg import Time
 class DeadReckoning(Node):
     def __init__(self):
         super().__init__("Odometry")
-        self.get_logger().info("Nodo de odometría EKF con ArUcos iniciado...")
+        self.get_logger().info("Kalman I choose you!! ....")
 
-        # Configuración de QoS para comunicación ROS2
         qos_profile = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             durability=DurabilityPolicy.VOLATILE,
@@ -72,8 +71,11 @@ class DeadReckoning(Node):
         self.L = 0.183          # Distancia entre ruedas (m)
 
         # PARÁMETROS DE RUIDO PARA EKF (SIMPLIFICADOS)
-        self.kr = 0.8           # Factor de ruido rueda derecha
-        self.kl = 0.8           # Factor de ruido rueda izquierda
+        self.kr = 0.0273           # Factor de ruido rueda derecha
+        self.kl = 0.0063           # Factor de ruido rueda izquierda
+
+        self.offset_x = 0.075   # Offset camara en x
+        self.offset_z = 0.065   # Offset camara en z
 
         # MATRIZ DE COVARIANZA DEL ESTADO (3x3) - INICIALIZACIÓN CONSERVADORA
         self.Sigma = np.eye(3) * 0.01
@@ -104,9 +106,9 @@ class DeadReckoning(Node):
         
         # MATRIZ DE TRANSFORMACIÓN CÁMARA-ROBOT (SIMPLIFICADA)
         self.T_cam_robot = np.array([
-            [0.0, 0.0, 1.0, 0.075],
+            [0.0, 0.0, 1.0, self.offset_x],
             [-1.0, 0.0, 0.0, 0.0],
-            [0.0, -1.0, 0.0, 0.065],
+            [0.0, -1.0, 0.0, self.offset_z],
             [0.0, 0.0, 0.0, 1.0]
         ])
         
@@ -373,7 +375,7 @@ def main(args=None):
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
-        print("Nodo terminado por el usuario!")
+        print("Mataron a Kalman (que bueno..) ")
     except Exception as e:
         print(f"Error en el nodo: {e}")
     finally:
