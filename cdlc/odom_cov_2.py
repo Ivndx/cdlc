@@ -10,7 +10,7 @@ from geometry_msgs.msg import Quaternion, TransformStamped, PoseStamped
 from sensor_msgs.msg import JointState
 from aruco_opencv_msgs.msg import ArucoDetection
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
-from tf_transformations import quaternion_from_euler, euler_from_quaternion
+from tf_transformations import quaternion_from_euler, quaternion_from_matrix, euler_from_quaternion, quaternion_matrix
 from tf2_ros import TransformBroadcaster
 from rosgraph_msgs.msg import Clock
 from builtin_interfaces.msg import Time
@@ -115,8 +115,8 @@ class DeadReckoning(Node):
         ])
         
         # PARÁMETROS DE TRANSFORMACIÓN CÁMARA-ROBOT (CORREGIDOS)
-        self.cam_offset_x = 0.075    # Distancia cámara desde centro del robot en X (m)
-        self.cam_offset_y = 0.0     # Offset lateral de cámara (m)
+        self.cam_offset_x =  0.075    # Distancia cámara desde centro del robot en X (m)
+        self.cam_offset_y = 0.0 #Robot real = 0.0     # Offset lateral de cámara (m)
         self.cam_offset_z = 0.065   # Altura de cámara sobre la base (m)
         
         # FACTORES DE VALIDACIÓN
@@ -231,8 +231,7 @@ class DeadReckoning(Node):
 
             # === TRANSFORMACIÓN DEL ARUCO DETECTADO ===
             q = aruco.pose.orientation
-            _, pitch, _ = euler_from_quaternion([q.x, q.y, q.z, q.w])
-            R_cm = self.rotation_matrix(pitch, 'y')
+            R_cm = quaternion_matrix([q.x, q.y, q.z, q.w])[:3, :3]
             t_cm = np.array([[aruco.pose.position.x],
                             [aruco.pose.position.y],
                             [aruco.pose.position.z]])
@@ -298,7 +297,7 @@ class DeadReckoning(Node):
             innovation = np.array([[innovation_distance], [innovation_angle]])
             correction = K @ innovation
 
-            smoothing = 0.1
+            smoothing = 0.25
             self.pose[0] += correction[0, 0] * smoothing
             self.pose[1] += correction[1, 0] * smoothing
             self.pose[2] += correction[2, 0] * smoothing
@@ -356,9 +355,9 @@ class DeadReckoning(Node):
             self.pose[2] += W * dt                         # Nueva orientación
             self.pose[2] = self.normalize_angle(self.pose[2])  # Normalizar ángulo
 
-            # JACOBIANO DEL MODELO DE ESTADO (F_x)
+            # JACOBIANO DEL MODELO DE ESTADO (H_k)
             # Derivadas parciales del nuevo estado con respecto al estado anterior
-            F_x = np.array([
+            H_k = np.array([
                 [1.0, 0.0, -dt * V * np.sin(theta_prev)],  # ∂x_new/∂[x,y,θ]
                 [0.0, 1.0,  dt * V * np.cos(theta_prev)],  # ∂y_new/∂[x,y,θ]
                 [0.0, 0.0,  1.0]                           # ∂θ_new/∂[x,y,θ]
@@ -376,7 +375,7 @@ class DeadReckoning(Node):
             Q = F_u @ self.L_noise @ F_u.T
             
             # PREDICCIÓN DE COVARIANZA
-            self.cov = F_x @ self.cov_prev @ F_x.T + Q
+            self.cov = H_k @ self.cov_prev @ H_k.T + Q
 
             # === FASE DE CORRECCIÓN DEL EKF (con ArUco si disponible) ===
             if self.aruco_detected and self.aruco_data is not None:
