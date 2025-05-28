@@ -70,8 +70,8 @@ class DeadReckoning(Node):
         self.L = 0.183          # Distancia entre ruedas (m)
 
         # PARÁMETROS DE RUIDO PARA EKF
-        self.sig2r = 0.1        # Varianza rueda derecha (reducida)
-        self.sig2l = 0.1        # Varianza rueda izquierda (reducida)
+        self.sig2r = 0.0273        # Varianza rueda derecha (reducida)
+        self.sig2l = 0.0067       # Varianza rueda izquierda (reducida)
 
         # MATRIZ DE COVARIANZA DEL ESTADO (3x3)
         # Representa incertidumbre en [x, y, theta]
@@ -109,8 +109,8 @@ class DeadReckoning(Node):
         # MATRIZ DE RUIDO DE MEDICIÓN ARUCO (2x2)
         # [distancia, ángulo_relativo]
         self.R_aruco = np.array([
-            [0.02, 0.0],        # Varianza en distancia (2cm std)
-            [0.0, 0.05]         # Varianza en ángulo (0.05 rad² ≈ 13° std)
+            [0.5, 0.0],        # Varianza en distancia (2cm std)
+            [0.0, 0.5]         # Varianza en ángulo (0.05 rad² ≈ 13° std)
         ])
         
         # PARÁMETROS DE TRANSFORMACIÓN CÁMARA-ROBOT (CORREGIDOS)
@@ -184,32 +184,29 @@ class DeadReckoning(Node):
         # Rotaciones requeridas según la imagen (Y+90°, Z+90°)
         R_y = self.rotation_matrix(np.pi/2, 'y')
         R_z = self.rotation_matrix(np.pi/2, 'z')
-        R_rc = R_z @ R_y  # Rotación compuesta cámara → robot
+        R_rc = R_z @ R_y  # Cámara → robot
 
-        # Traslacion camara en el robot
         t_rc = np.array([[self.cam_offset_x], [0.0], [self.cam_offset_z]])
-
-        # Matriz de transformación cámara → robot
         T_rc = np.vstack((np.hstack((R_rc, t_rc)), [[0, 0, 0, 1]]))
 
-        # Rotación del ArUco desde rvec (convertido a matriz)
+        # Obtener matriz de rotación desde quaternion (completo)
         q = aruco.pose.orientation
-        _, pitch, _ = euler_from_quaternion([q.x, q.y, q.z, q.w])
-        R_cm = self.rotation_matrix(pitch, 'y')  # Suponemos solo rotación en Y
+        R_cm = tf_transformations.quaternion_matrix([q.x, q.y, q.z, q.w])[:3, :3]
 
-        t_cm = np.array([[aruco.pose.position.x],
-                        [aruco.pose.position.y],
-                        [aruco.pose.position.z]])
+        t_cm = np.array([
+            [aruco.pose.position.x],
+            [aruco.pose.position.y],
+            [aruco.pose.position.z]
+        ])
         T_cm = np.vstack((np.hstack((R_cm, t_cm)), [[0, 0, 0, 1]]))
 
-        # Composición total
+        # Transformación final: robot ← cámara ← marcador
         T_rm = T_rc @ T_cm
 
         x_aruco = T_rm[0, 3]
         y_aruco = T_rm[1, 3]
 
         return x_aruco, y_aruco
-
 
     def normalize_angle(self, angle):
         """
