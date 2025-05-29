@@ -1,3 +1,5 @@
+## Bug2: Last update: 19/05/25 - 17:15 
+
 #!/usr/bin/env python3
 
 import rclpy, tf_transformations, math
@@ -7,13 +9,11 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
 
-
-
 class BugTwo(Node):
     def __init__(self):
         super().__init__("BugTwo_Node")
         self.get_logger().info("Bug Two: Started!")
-        self.create_timer(0.1, self.state_machine)
+        self.create_timer(0.05, self.state_machine)
         self.pub = self.create_publisher(Twist, 'cmd_vel', 1)
         self.create_subscription(Pose, 'target', self.target_callback,1)
         self.create_subscription(Odometry, 'ground_truth', self.odom_callback,1)
@@ -24,26 +24,22 @@ class BugTwo(Node):
         self.target_flag = False
         self.first_time_flag = True
         self.msg = Twist()
-        self.distance_to_target = None
         self.avoiding_wall = False
 
         self.tolerance = 0.05
-        self.k_linear = 0.45   # Ganancia para velocidad lineal
-        self.k_angular = 1.00 # Ganancia a para velocidad angular
+        self.k_linear = 0.35   # Ganancia para velocidad lineal
+        self.k_angular = 0.75 # Ganancia a para velocidad angular
 
         self.state = "StopRobot"
+        self.avoid_direction = "right" #o "left"
 
         self.robot_view = []
 
         self.initialX = 0.0
         self.initialY = 0.0
-        self.initialT = 0.0
 
-        self.mdist_epsilon = 0.10
-        self.safe_distance = 0.30
-
-        self.Wall_hit = []
-        self.Wall_leave = []
+        self.mdist_epsilon = 0.15
+        self.safe_distance = 0.25
 
         self.initialX = 0.0
         self.initialY = 0.0
@@ -52,8 +48,7 @@ class BugTwo(Node):
         self.b = 0.0
         self.c = 0.0
 
-
-
+        self.last_log = ""
 
     def lidar_callback(self, data):
         ranges = list(data.ranges)
@@ -72,14 +67,17 @@ class BugTwo(Node):
 
     def stop_robot(self):
         self.move_robot(0.0, 0.0)
-        if self.first_time_flag == True: print("Stopping Robot")
+        if self.first_time_flag == True and self.last_log != "Stopping Robot": print("Stopping Robot")
+        self.last_log = "Stopping Robot"
         self.first_time_flag = False
+        if self.last_log != "": self.last_log = ""
 
     def normalize_angle(self, angle):
         return math.atan2(math.sin(angle), math.cos(angle))
 
-
     def go_to_goal(self):
+        if len(self.current_pose) < 3 or len(self.target_pose) < 3:
+            return
         Ex =  self.target_pose[0] - self.current_pose[0]
         Ey =  self.target_pose[1] - self.current_pose[1]
         distance_to_target = math.hypot(Ex, Ey)
@@ -94,34 +92,37 @@ class BugTwo(Node):
             v = 0.0
             self.move_robot(v,w)
         else:
-        #Envio de las velocidades para el sistem
+        #Envio de las velocidades para el sistema
             v = self.k_linear * distance_to_target
-            v  = min(v , 0.3)
+            v  = min(v , 0.2)
             w = self.k_angular * heading_error
-            w = max(min(w, 0.5), -0.5)
+            w = max(min(w, 0.3), -0.3)
             
             self.move_robot(v,w)
-
 
     def got_New_Target(self):
         return self.target_flag
     
     def at_Target(self):
+        if len(self.current_pose) < 3 or len(self.target_pose) < 3:
+            return False
         Ex =  self.target_pose[0] - self.current_pose[0]
         Ey =  self.target_pose[1] - self.current_pose[1]
         distance_to_target = math.hypot(Ex, Ey)
         print('\x1b[2K', end = '\r')
         print("Distance to target = " + str(distance_to_target), end = '\r')
         if distance_to_target < self.tolerance:
-            print("\nArrived to Target")
+            if self.last_log != "Arrived to Target": 
+                print("\nArrived to Target")
+                self.last_log = "Arrived to Target"
             self.first_time_flag = True
             self.target_pose = []
             self.target_flag = False
+            if self.last_log != "": self.last_log = ""
+
             return True
         else:
             return False
-
-    
 
     def target_callback(self,msg):
         new_target = [msg.x, msg.y, msg.theta]
@@ -132,7 +133,11 @@ class BugTwo(Node):
             self.targetY = self.target_pose[1]
             self.initialX = self.current_pose[0]
             self.initialY = self.current_pose[1]
-            print("New target obtained!")
+            if self.last_log != "New target obtained!":
+                print("New target obtained!")
+                self.last_log = "New target obtained!"
+            
+            if self.last_log != "": self.last_log = ""
 
     def move_robot(self,v,w):
         self.msg.linear.x = v
@@ -149,8 +154,10 @@ class BugTwo(Node):
 
     
     def follow_wall(self, direction):
-        if self.first_time_flag == True: print("Following Wall...")
+        if self.first_time_flag == True and self.last_log != "Following Wall...":
+            print("Following Wall...")
         self.first_time_flag = False
+        self.avoiding_wall = True
 
         #Define P1 (r1, theta1) and P2 (r2, theta2)
         if direction == 'left':
@@ -177,109 +184,95 @@ class BugTwo(Node):
         Ux_per_n, Uy_per_n = Ux_per/norm_per, Uy_per/norm_per
 
         #Compute Follow Wall angle
-        dwall, betha, Kfw = 0.30, 0.55, 1.0
+        dwall, betha, Kfw = 0.20, 0.6 , 1.5
         Ex_per, Ey_per = Ux_per - dwall*Ux_per_n, Uy_per - dwall*Uy_per_n
         angle_per = math.atan2(Ey_per, Ex_per)
         angle_tan = math.atan2(Uy_tan_n, Ux_tan_n)
         fw_angle = betha*angle_tan + (1-betha)*angle_per
         fw_angle = math.atan2(math.sin(fw_angle),math.cos(fw_angle))
         #Move Robot 
-        v = 0.1 if abs(fw_angle) > 0.1 else 0.2
-        if abs(fw_angle) < 0.05:
-            fw_angle = 0.0
+        v = max(0.15, 0.25 - abs(fw_angle))   # Reduce velocidad al girar más
         w = Kfw * fw_angle
+        w = max(min(w, 4.0), -4.0)
         self.move_robot(v,w)
-    
-    def isPathAheadCleared(self):
-        distances= [self.robot_view.get("front_left"),
-                     self.robot_view.get("front"),
-                     self.robot_view.get("front_right")]
-        distance_to_obstacle = min(distances)
-        print('\x1b[2k', end = '\r')
-        print("Distance to clear = " + str(distance_to_obstacle), end = '\r')
-        if distance_to_obstacle >= self.safe_distance:
-            if self.first_time_flag == True: print("\nObstacle Cleared!")
-            self.first_time_flag = False
-            return True
-        else:
-            return False
+        if self.last_log != "": self.last_log = ""
 
-    def lineAgainWithProgress(self):
-
-        DX, DY = self.targetX - self.initialX, self.targetY - self.initialY
-        
-        PX, PY = self.current_pose[0] - self.initialX, self.current_pose[1] - self.initialY
-        
-        d = (abs(self.a*self.current_pose[0]+self.b*self.current_pose[1]+self.c))/math.sqrt(self.a*2+self.b*2)
-        line = self.a*self.current_pose[0]+self.b*self.current_pose[1]+self.c
-
-        #avance actual
-        dot = DX * PX + DY * PY
-        norm_Mline = math.hypot(DX,DY)
-        current_progress = dot/norm_Mline
-
-        self.d_actual = d
-        self.progress = current_progress
-
-        on_Mline = d < self.mdist_epsilon
-        progress_check = self.progress > self.progress_at_hit
-
-
-        if on_Mline and progress_check:
-            self.avoiding_wall = False
-            print("\nLine has been found!")
-            return True
-        else:
-            return False
-        
-    
     def isObstacleTooClose(self):
-        if hasattr(self, 'avoiding_wall') and self.avoiding_wall:
+        # Si ya hemos llegado al destino, ignorar cualquier pared nueva
+        if self.state == "StopRobot":
             return False
-        
-        
-        distances= [self.robot_view.get("front_left"),
-                     self.robot_view.get("front"),
-                     self.robot_view.get("front_right")]
-        if min(distances) < self.safe_distance:
-            print ("\nWall detected! Avoiding Now")
-            
-            
-            DX, DY = self.targetX - self.initialX, self.targetY - self.initialY
-            PX, PY = self.current_pose[0] - self.initialX, self.current_pose[1] - self.initialY
 
+        # Si ya estamos evitando una pared, no reiniciamos la lógica
+        if self.avoiding_wall:
+            return False
+
+        front = self.robot_view.get('front')
+        if front < self.safe_distance:
+            if self.last_log != "\nWall detected! Avoiding Now": print("\nWall detected! Avoiding Now")
+            self.last_log = "\nWall detected! Avoiding Now"
+            # Punto de contacto
+            self.initialX = self.current_pose[0]
+            self.initialY = self.current_pose[1]
+            # Parámetros de la M-line ax + by + c = 0
             self.a = self.targetY - self.initialY
             self.b = -(self.targetX - self.initialX)
-            self.c = self.targetX*self.initialY - self.targetY*self.initialX
+            self.c = self.targetX * self.initialY - self.targetY * self.initialX
+            # Norm of the M-line direction
+            DX = self.targetX - self.initialX
+            DY = self.targetY - self.initialY
+            self.norm_Mline = math.hypot(DX, DY)
+            # Avance inicial (en el impacto es cero)
+            self.progress_at_hit = 0.0
 
-            self.d_hit = (abs(self.a*self.current_pose[0]+self.b*self.current_pose[1]+self.c))/math.sqrt(self.a*2+self.b*2)
-            dot = DX * PX + DY * PY
-            norm_Mline = math.hypot(DX,DY)
-            self.progress_at_hit = dot/norm_Mline
-
-            self.first_time_flag = True
-            return True
-        else:
-            return False
+            self.avoiding_wall = True
         
+            return True
+        if self.last_log != "": self.last_log = ""
+
+        return False
 
 
+    def lineAgainWithProgress(self):
+        # Si todavía hay obstáculo frontal, no salgas
+        if self.robot_view.get("front") < self.safe_distance:
+            return False
+
+        # Vector desde el punto de contacto
+        PX = self.current_pose[0] - self.initialX
+        PY = self.current_pose[1] - self.initialY
+        # Dirección de la M-line
+        DX = self.targetX - self.initialX
+        DY = self.targetY - self.initialY
+
+        # Distancia perpendicular a la M-line
+        dist_to_mline = abs(self.a*self.current_pose[0] + self.b*self.current_pose[1] + self.c) \
+                        / math.sqrt(self.a*2 + self.b*2)
+        # Progreso (proyección escalar normalizada)
+        current_progress = (DX*PX + DY*PY) / self.norm_Mline
+
+        # Condición de salida
+        if dist_to_mline < self.mdist_epsilon and current_progress > self.progress_at_hit + 0.15:
+            if self.last_log != "\nLine has been found! Resuming GoToGoal.": print("\nLine has been found! Resuming GoToGoal.")
+            self. last_log != "\nLine has been found! Resuming GoToGoal."
+            self.avoiding_wall = False
+            return True
+        if self.last_log != "": self.last_log = ""
+        return False
+
+        
     def state_machine(self):
         if len(self.current_pose) > 0 and len(self.robot_view) > 0:
             #states
             if self.state == "StopRobot": self.stop_robot()
             if self.state == "GoToGoal": self.go_to_goal()
-            if self.state == "FollowWall": self.follow_wall('left')
+            if self.state == "FollowWall": self.follow_wall(self.avoid_direction)
             #Changes
             if self.state == "StopRobot" and self.got_New_Target(): self.state = "GoToGoal"
             if self.state == "GoToGoal" and self.at_Target(): self.state = "StopRobot"
             if self.state == "GoToGoal" and self.isObstacleTooClose(): self.state = "FollowWall"
-            if self.state == "FollowWall" and self.lineAgainWithProgress():
-                self.avoiding_wall = False
-                self.state = "GoToGoal"
+            if self.state == "FollowWall" and self.lineAgainWithProgress():self.state = "GoToGoal"
+
             
-
-
 def main(args=None):
     rclpy.init(args=args)
     nodeh = BugTwo()

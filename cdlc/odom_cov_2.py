@@ -71,8 +71,8 @@ class DeadReckoning(Node):
         self.L = 0.183          # Distancia entre ruedas (m)
 
         # PARÁMETROS DE RUIDO PARA EKF (SIMPLIFICADOS)
-        self.kr = 0.0273           # Factor de ruido rueda derecha
-        self.kl = 0.0063           # Factor de ruido rueda izquierda
+        self.kr = 0.73           # Factor de ruido rueda derecha
+        self.kl = 0.63           # Factor de ruido rueda izquierda
 
         self.offset_x = 0.075   # Offset camara en x
         self.offset_z = 0.065   # Offset camara en z
@@ -83,21 +83,21 @@ class DeadReckoning(Node):
         # VARIABLES PARA DETECCIÓN DE ARUCO
         self.aruco_detected = False
         self.aruco_data = []
-        
+
         # MAPA DE ARUCOS CONOCIDOS: ID -> (x_world, y_world) - SIMPLIFICADO
         self.aruco_map = {
             0: (-3.95, -1.0),
             1: (-1.0, 3.45),
-            2: (1.95, -1.45),
-            3: (0.1, -2.0),
+            2: (1.9, -1.4),
+            3: (0.1, -2.85),
             4: (2.5, 4.0),
-            5: (-1.0, -3.5),
-            6: (0.5, 2.9),
+            5: (-2.0, -3.95),
+            6: (0.25, 2.9),
             7: (0.95, 0.0),
-            8: (-2.0, 1.5),
-            9: (3.45, 2.95),
+            8: (-2.4, 2.0),
+            9: (4.0, -2.5),
         }
-                
+                        
         # MATRIZ DE RUIDO DE MEDICIÓN ARUCO (SIMPLIFICADA)
         self.Rk = np.array([
             [1.0, -0.0002376],
@@ -173,7 +173,7 @@ class DeadReckoning(Node):
             pos_robot = self.T_cam_robot @ pos
             
             # Filtrar ArUcos muy lejanos
-            if np.linalg.norm(pos_robot[:2]) > 2.5:
+            if np.linalg.norm(pos_robot[:2]) > 20:
                 self.get_logger().warn(f"ArUco {id} descartado por estar muy lejos: {np.linalg.norm(pos_robot[:2]):.2f}m")
                 continue
 
