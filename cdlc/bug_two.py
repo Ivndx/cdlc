@@ -16,7 +16,7 @@ class BugTwo(Node):
         self.create_timer(0.05, self.state_machine)
         self.pub = self.create_publisher(Twist, 'cmd_vel', 1)
         self.create_subscription(Pose, 'target', self.target_callback,1)
-        self.create_subscription(Odometry, 'ground_truth', self.odom_callback,1)
+        self.create_subscription(Odometry, 'odom', self.odom_callback,1)
         self.create_subscription(LaserScan, '/scan', self.lidar_callback,1)
 
         self.current_pose = []
