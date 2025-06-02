@@ -21,6 +21,7 @@ class MainCoordinator(Node):
 
         self.close_enough = False
         self.goal_reached = False
+        self.dropoff_sent = False
         self.routine_index = 0
 
         self.precision_path = [
@@ -51,6 +52,7 @@ class MainCoordinator(Node):
             self.state = "go_to_pick_up"
             self.publish_target(2.0, 0.0)
 
+
         elif self.state == "go_to_pick_up":
             self.publish_target(2.0, 0.0)
             if self.close_enough:
@@ -58,6 +60,7 @@ class MainCoordinator(Node):
                 self.state = "pick_up_orientation"
                 self.routine_index = 0
                 self.goal_reached = False  # reiniciar bandera
+
 
         elif self.state == "pick_up_orientation":
             if self.goal_reached:
@@ -68,28 +71,55 @@ class MainCoordinator(Node):
                     self.publish_target(x, y)
                 else:
                     self.get_logger().info("Finished pick-up orientation routine.")
+                    self.previous_state = "pick_up_orientation"
                     self.state = "start_servo"
             elif self.routine_index == 0:
                 # Primer punto aún no enviado
                 x, y = self.precision_path[0]
                 self.publish_target(x, y)
 
+
         elif self.state == "start_servo":
             if self.servo_counter == 0:
                 angle = 260.0
-                self.servo_counter = 1
                 self.get_logger().info("Publishing servo angle for pick-up (260.0)")
-            elif self.servo_counter == 1:
+            else:
                 angle = -300.0
-                self.servo_counter = 0
                 self.get_logger().info("Publishing servo angle for drop-off (-300.0)")
-            
-            self.servo_pub.publish(Float32(data=angle))
-            self.state = "done"
 
-        
+            self.servo_pub.publish(Float32(data=angle))
+            self.servo_counter = 1 - self.servo_counter
+
+            # Transición después de servo
+            if self.previous_state == "pick_up_orientation":
+                self.dropoff_sent = False
+                self.state = "go_to_drop_off"
+            else:
+                self.state = "done"
+
+
+        elif self.state == "go_to_drop_off":
+            if not self.dropoff_sent:
+                self.publish_target(-2.0, 0.0)
+                self.dropoff_sent = True
+            if self.close_enough:
+                self.get_logger().info("Arrived at drop-off point. Switching to START_SERVO.")
+                self.previous_state = "go_to_drop_off"
+                self.state = "start_servo"
+
+
         elif self.state == "done":
-            pass
+            if not self.returned_home:
+                self.get_logger().info("Returning to origin (0.0, 0.0)")
+                self.publish_target(0.0, 0.0)
+                self.returned_home = True
+            elif self.close_enough:
+                self.get_logger().info("Robot arrived at origin. State machine complete.")
+                self.state = "idle"
+
+        elif self.state == "idle":
+            pass  # Aquí acaba
+
 
 def main(args=None):
     """
