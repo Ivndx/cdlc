@@ -177,19 +177,112 @@ class BugTwo(Node):
             if self.state == "FollowWall" and self.lineAgainWithProgress():
                 self.state = "GoToGoal"
 
-    # Métodos auxiliares (iguales que antes, omitidos aquí por brevedad)
-
     def follow_wall(self, direction):
-        # (misma lógica de tu código original)
-        pass
+        if self.first_time_flag == True and self.last_log != "Following Wall...":
+            print("Following Wall...")
+        self.first_time_flag = False
+        self.avoiding_wall = True
+
+        #Define P1 (r1, theta1) and P2 (r2, theta2)
+        if direction == 'left':
+            theta2, r2 =  math.radians(45), self.robot_view.get('front_left')
+            theta1, r1 =  math.radians(90), self.robot_view.get('left')
+            print('\nWall is on the left')
+        else:
+            theta2, r2 =  math.radians(-45), self.robot_view.get('front_right')
+            theta1, r1 =  math.radians(-90), self.robot_view.get('right')
+            print('\nWall is on the right')
+
+        #Compute utan = P2 - P1
+        P1x, P1y = r1*math.cos(theta1), r1*math.sin(theta1)
+        Ux_tan, Uy_tan = r2*math.cos(theta2) - P1x, r2*math.sin(theta2) -P1y
+
+        #Unitary vector
+        norm = math.hypot(Ux_tan, Uy_tan)
+        Ux_tan_n, Uy_tan_n = Ux_tan/norm, Uy_tan/norm
+
+        #uper and unitary vector
+        dot = P1x*Ux_tan_n + P1y * Uy_tan_n
+        Ux_per, Uy_per = P1x - dot*Ux_tan_n, P1y - dot*Uy_tan_n
+        norm_per = math.hypot(Ux_per, Uy_per)
+        Ux_per_n, Uy_per_n = Ux_per/norm_per, Uy_per/norm_per
+
+        #Compute Follow Wall angle
+        dwall, betha, Kfw = 0.20, 0.6 , 1.5
+        Ex_per, Ey_per = Ux_per - dwall*Ux_per_n, Uy_per - dwall*Uy_per_n
+        angle_per = math.atan2(Ey_per, Ex_per)
+        angle_tan = math.atan2(Uy_tan_n, Ux_tan_n)
+        fw_angle = betha*angle_tan + (1-betha)*angle_per
+        fw_angle = math.atan2(math.sin(fw_angle),math.cos(fw_angle))
+        #Move Robot 
+        v = max(0.15, 0.25 - abs(fw_angle))   # Reduce velocidad al girar más
+        w = Kfw * fw_angle
+        w = max(min(w, 4.0), -4.0)
+        self.move_robot(v,w)
+        if self.last_log != "": self.last_log = ""
 
     def isObstacleTooClose(self):
-        # (misma lógica de tu código original)
-        pass
+        # Si ya hemos llegado al destino, ignorar cualquier pared nueva
+        if self.state == "StopRobot":
+            return False
+
+        # Si ya estamos evitando una pared, no reiniciamos la lógica
+        if self.avoiding_wall:
+            return False
+
+        front = self.robot_view.get('front')
+        if front < self.safe_distance:
+            if self.last_log != "\nWall detected! Avoiding Now": print("\nWall detected! Avoiding Now")
+            self.last_log = "\nWall detected! Avoiding Now"
+            # Punto de contacto
+            self.initialX = self.current_pose[0]
+            self.initialY = self.current_pose[1]
+            # Parámetros de la M-line ax + by + c = 0
+            self.a = self.targetY - self.initialY
+            self.b = -(self.targetX - self.initialX)
+            self.c = self.targetX * self.initialY - self.targetY * self.initialX
+            # Norm of the M-line direction
+            DX = self.targetX - self.initialX
+            DY = self.targetY - self.initialY
+            self.norm_Mline = math.hypot(DX, DY)
+            # Avance inicial (en el impacto es cero)
+            self.progress_at_hit = 0.0
+
+            self.avoiding_wall = True
+        
+            return True
+        if self.last_log != "": self.last_log = ""
+
+        return False
+
 
     def lineAgainWithProgress(self):
-        # (misma lógica de tu código original)
-        pass
+        # Si todavía hay obstáculo frontal, no salgas
+        if self.robot_view.get("front") < self.safe_distance:
+            return False
+
+        # Vector desde el punto de contacto
+        PX = self.current_pose[0] - self.initialX
+        PY = self.current_pose[1] - self.initialY
+        # Dirección de la M-line
+        DX = self.targetX - self.initialX
+        DY = self.targetY - self.initialY
+
+        # Distancia perpendicular a la M-line
+        dist_to_mline = abs(self.a*self.current_pose[0] + self.b*self.current_pose[1] + self.c) \
+                        / math.sqrt(self.a*2 + self.b*2)
+        # Progreso (proyección escalar normalizada)
+        current_progress = (DX*PX + DY*PY) / self.norm_Mline
+
+        # Condición de salida
+        if dist_to_mline < self.mdist_epsilon and current_progress > self.progress_at_hit + 0.15:
+            if self.last_log != "\nLine has been found! Resuming GoToGoal.": print("\nLine has been found! Resuming GoToGoal.")
+            self. last_log != "\nLine has been found! Resuming GoToGoal."
+            self.avoiding_wall = False
+            return True
+        if self.last_log != "": self.last_log = ""
+        return False
+
 
 def main(args=None):
     rclpy.init(args=args)
