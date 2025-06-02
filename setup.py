@@ -33,6 +33,7 @@ setup(
         "odom_cov_2 = cdlc.odom_cov_2:main",
         "bug_two = cdlc.bug_two:main",
         "metrics = cdlc.metrics:main",
+        "state_machine_fl = cdlc.state_machine_fl:main",
         ],
     },
 )

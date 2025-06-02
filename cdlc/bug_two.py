@@ -8,6 +8,9 @@ from turtlesim.msg import Pose
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
+from std_msgs.msg import Bool
+
+
 
 class BugTwo(Node):
     def __init__(self):
@@ -18,6 +21,7 @@ class BugTwo(Node):
         self.create_subscription(Pose, 'target', self.target_callback,1)
         self.create_subscription(Odometry, 'odom', self.odom_callback,1)
         self.create_subscription(LaserScan, '/scan', self.lidar_callback,1)
+        self.close_enough_pub = self.create_publisher(Bool, "close_enough", 1)
 
         self.current_pose = []
         self.target_pose = []
@@ -106,11 +110,20 @@ class BugTwo(Node):
     def at_Target(self):
         if len(self.current_pose) < 3 or len(self.target_pose) < 3:
             return False
+
         Ex =  self.target_pose[0] - self.current_pose[0]
         Ey =  self.target_pose[1] - self.current_pose[1]
         distance_to_target = math.hypot(Ex, Ey)
+
         print('\x1b[2K', end = '\r')
         print("Distance to target = " + str(distance_to_target), end = '\r')
+
+        # Publicar si está a menos de 40 cm
+        if distance_to_target < 0.4:
+            self.close_enough_pub.publish(Bool(data=True))
+        else:
+            self.close_enough_pub.publish(Bool(data=False))
+
         if distance_to_target < self.tolerance:
             if self.last_log != "Arrived to Target": 
                 print("\nArrived to Target")
