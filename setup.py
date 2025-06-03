@@ -31,9 +31,11 @@ setup(
         "odometry_covariance = cdlc.odometry_covariance:main",
         "bug_2 = cdlc.bug_2:main",
         "odom_cov_2 = cdlc.odom_cov_2:main",
+        "odom_cov_3 = cdlc.odom_cov_3:main",
         "bug_two = cdlc.bug_two:main",
         "metrics = cdlc.metrics:main",
         "state_machine_fl = cdlc.state_machine_fl:main",
+        "sm_back_2 = cdlc.sm_back_2:main"
         ],
     },
 )
