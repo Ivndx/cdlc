@@ -81,7 +81,7 @@ class DeadReckoning(Node):
 
         # MAPA DE ARUCOS MUNDO REAL
         self.aruco_map = {
-            0: (1.15, 0.0),
+            #0: (1.15, 0.0),
             1: (-1.535, 0.15),
             2: (1.435, -0.15),
             3: (0.0, -1.03),

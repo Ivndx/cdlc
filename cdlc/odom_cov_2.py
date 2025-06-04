@@ -98,23 +98,23 @@ class DeadReckoning(Node):
             9: (4.0, -2.5),
         }'''
         # MAPA DE ARUCOS PARA EL FORKLIFT MAP
-        '''self.aruco_map = {
-            0: (2.245, 0.0),
+        self.aruco_map = {
+            #0: (2.245, 0.0),
             1: (-2.245, 0.0),
             3: (1.64, 1.64),
             4: (-1.64, -1.64),
             5: (-1.64, 1.64),
-        }'''
+        }
 
         #MAPA DE ARUCOS MUNDO REAL
-        self.aruco_map = {
+        '''self.aruco_map = {
             0: (1.15, 0.0),
             1: (-1.335, 0.15),
             2: (1.335, -0.108),
             3: (0.0, -1.03),
             4: (0.0, 1.03),
             5: (-1.335, -0.15)
-        }
+        }'''
         
         # MATRIZ DE RUIDO DE MEDICIÓN ARUCO (SIMPLIFICADA)
         self.Rk = np.array([

@@ -44,7 +44,7 @@ class BugTwo(Node):
         self.c = 0.0
 
         self.mdist_epsilon = 0.15
-        self.safe_distance = 0.15
+        self.safe_distance = 0.25
         self.last_log = ""
 
     def lidar_callback(self, data):
@@ -91,7 +91,7 @@ class BugTwo(Node):
             self.move_robot(v, w)
         else:
             v = self.k_linear * distance_to_target
-            v = min(v, 0.1)
+            v = max(min(v, 0.075), 0.1)
             w = self.k_angular * heading_error
             w = max(min(w, 0.3), -0.3)
             self.move_robot(v, w)
@@ -270,7 +270,7 @@ class BugTwo(Node):
 
         # Distancia perpendicular a la M-line
         dist_to_mline = abs(self.a*self.current_pose[0] + self.b*self.current_pose[1] + self.c) \
-                        / math.sqrt(self.a*2 + self.b*2)
+                        / math.sqrt(self.a**2 + self.b**2)
         # Progreso (proyección escalar normalizada)
         current_progress = (DX*PX + DY*PY) / self.norm_Mline
 

@@ -35,7 +35,10 @@ setup(
         "bug_two = cdlc.bug_two:main",
         "metrics = cdlc.metrics:main",
         "state_machine_fl = cdlc.state_machine_fl:main",
-        "sm_back_2 = cdlc.sm_back_2:main"
+        "sm_back_2 = cdlc.sm_back_2:main",
+        "sm_back_3 = cdlc.sm_back_3:main",
+        "sm_back_4 = cdlc.sm_back_4:main",
+        "sm_back_5 = cdlc.sm_back_5:main",
         ],
     },
 )
