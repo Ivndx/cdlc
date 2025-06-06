@@ -12,7 +12,7 @@ class BugTwo(Node):
     def __init__(self):
         super().__init__("BugTwo_Node")
         self.get_logger().info("Bug Two: Started!")
-        self.create_timer(0.05, self.state_machine)
+        self.create_timer(0.02, self.state_machine)
         self.pub = self.create_publisher(Twist, 'cmd_vel', 1)
         self.create_subscription(Pose, 'target', self.target_callback, 1)
         self.create_subscription(Odometry, 'odom', self.odom_callback, 1)
@@ -29,7 +29,7 @@ class BugTwo(Node):
         self.avoiding_wall = False
 
         self.tolerance = 0.05
-        self.k_linear = 0.35
+        self.k_linear = 0.30
         self.k_angular = 0.75
 
         self.state = "StopRobot"
@@ -44,7 +44,7 @@ class BugTwo(Node):
         self.c = 0.0
 
         self.mdist_epsilon = 0.15
-        self.safe_distance = 0.25
+        self.safe_distance = 0.35
         self.last_log = ""
 
     def lidar_callback(self, data):
@@ -54,12 +54,12 @@ class BugTwo(Node):
             if ranges[i] < data.range_min: ranges[i] = data.range_min - 0.01
 
         self.robot_view = {
-            'front_right': min(ranges[293:337]),
-            'right': min(ranges[248:292]),
-            'back': min(ranges[113:247]),
-            'left': min(ranges[68:112]),
-            'front_left': min(ranges[23:67]),
-            'front': min(min(ranges[0:22]), min(ranges[338:359]))
+            'front_right': min(ranges[887:1013]),
+            'right': min(ranges[742:886]),
+            'back': min(ranges[337:741]),
+            'left': min(ranges[202:336]),
+            'front_left': min(ranges[67:201]),
+            'front': min(min(ranges[:66]), min(ranges[1014:]))
         }
 
     def stop_robot(self):
@@ -86,12 +86,12 @@ class BugTwo(Node):
 
         if abs(heading_error) > 0.1:
             w = self.k_angular * heading_error
-            w = max(min(w, 0.75), -0.75)
+            w = max(min(w, 0.60), -0.60)
             v = 0.0
             self.move_robot(v, w)
         else:
             v = self.k_linear * distance_to_target
-            v = max(min(v, 0.075), 0.1)
+            v = 0.1
             w = self.k_angular * heading_error
             w = max(min(w, 0.3), -0.3)
             self.move_robot(v, w)
@@ -208,16 +208,16 @@ class BugTwo(Node):
         Ux_per_n, Uy_per_n = Ux_per/norm_per, Uy_per/norm_per
 
         #Compute Follow Wall angle
-        dwall, betha, Kfw = 0.20, 0.6 , 1.5
+        dwall, betha, Kfw = 0.25, 0.4 , 1.25
         Ex_per, Ey_per = Ux_per - dwall*Ux_per_n, Uy_per - dwall*Uy_per_n
         angle_per = math.atan2(Ey_per, Ex_per)
         angle_tan = math.atan2(Uy_tan_n, Ux_tan_n)
         fw_angle = betha*angle_tan + (1-betha)*angle_per
         fw_angle = math.atan2(math.sin(fw_angle),math.cos(fw_angle))
         #Move Robot 
-        v = max(0.15, 0.25 - abs(fw_angle))   # Reduce velocidad al girar más
+        v = max(0.10, 0.20 - abs(fw_angle))   # Reduce velocidad al girar más
         w = Kfw * fw_angle
-        w = max(min(w, 4.0), -4.0)
+        w = max(min(w, 2.0), -2.0)
         self.move_robot(v,w)
         if self.last_log != "": self.last_log = ""
 
@@ -230,30 +230,41 @@ class BugTwo(Node):
         if self.avoiding_wall:
             return False
 
+        # Verificación de obstáculos en zonas frontales ampliadas
         front = self.robot_view.get('front')
-        if front < self.safe_distance:
-            if self.last_log != "\nWall detected! Avoiding Now": print("\nWall detected! Avoiding Now")
+        front_left = self.robot_view.get('front_left')
+        front_right = self.robot_view.get('front_right')
+
+        if min(front, front_left, front_right) < self.safe_distance:
+            # ⛔ Detener el robot de inmediato
+            self.move_robot(0.0, 0.0)
+
+            if self.last_log != "\nWall detected! Avoiding Now":
+                print("\nWall detected! Avoiding Now")
             self.last_log = "\nWall detected! Avoiding Now"
+
             # Punto de contacto
             self.initialX = self.current_pose[0]
             self.initialY = self.current_pose[1]
-            # Parámetros de la M-line ax + by + c = 0
+
+            # M-line ax + by + c = 0
             self.a = self.targetY - self.initialY
             self.b = -(self.targetX - self.initialX)
             self.c = self.targetX * self.initialY - self.targetY * self.initialX
-            # Norm of the M-line direction
+
             DX = self.targetX - self.initialX
             DY = self.targetY - self.initialY
             self.norm_Mline = math.hypot(DX, DY)
-            # Avance inicial (en el impacto es cero)
             self.progress_at_hit = 0.0
 
             self.avoiding_wall = True
-        
             return True
-        if self.last_log != "": self.last_log = ""
+
+        if self.last_log != "":
+            self.last_log = ""
 
         return False
+
 
 
     def lineAgainWithProgress(self):
@@ -270,7 +281,7 @@ class BugTwo(Node):
 
         # Distancia perpendicular a la M-line
         dist_to_mline = abs(self.a*self.current_pose[0] + self.b*self.current_pose[1] + self.c) \
-                        / math.sqrt(self.a**2 + self.b**2)
+                        / math.sqrt(self.a*2 + self.b*2)
         # Progreso (proyección escalar normalizada)
         current_progress = (DX*PX + DY*PY) / self.norm_Mline
 

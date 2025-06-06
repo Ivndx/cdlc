@@ -44,7 +44,7 @@ class MainCoordinator(Node):
         self.create_subscription(Pose, 'PosicionBot', self.robot_pose_callback, 10)
 
         self.state = "start"
-        self.timer = self.create_timer(0.5, self.state_machine)
+        self.timer = self.create_timer(0.1, self.state_machine)  # Timer más rápido para mejor control
 
         # Variables de estado existentes
         self.close_enough = False
@@ -62,9 +62,13 @@ class MainCoordinator(Node):
         self.last_aruco_position = None  # Para mantener última posición conocida
         self.robot_position = Pose()  # Posición actual del robot
         
+        # Variables para control de pérdida de ArUco
+        self.aruco_lost_count = 0
+        self.max_aruco_lost_count = 30  # ~3 segundos con timer de 0.1s
+        
         # Parámetros de configuración
-        self.aruco_detection_threshold = 0.5  # 50cm para detectar ArUco 0
-        self.pickup_final_distance = 0.15     # 15cm distancia final para pick-up
+        self.aruco_detection_threshold = 0.7  # 80cm para detectar ArUco 0 (más lejos)
+        self.pickup_final_distance = 0.2     # 15cm distancia final para pick-up
         
         # Matriz de transformación cámara-robot (misma que en odometría)
         self.offset_x = 0.075
@@ -83,11 +87,11 @@ class MainCoordinator(Node):
         """
         Callback para procesar detecciones de ArUco
         """
-        self.aruco_0_detected = False
+        aruco_found = False
         
         for aruco in msg.markers:
             if aruco.marker_id == 0:  # Solo nos interesa el ArUco 0
-                self.aruco_0_detected = True
+                aruco_found = True
                 
                 # Transformar posición de cámara a robot
                 pos_cam = np.array([
@@ -117,9 +121,23 @@ class MainCoordinator(Node):
                 dy = aruco_world_y - robot_y
                 self.aruco_0_distance = math.sqrt(dx*dx + dy*dy)
                 
+                # Reset contador de pérdida
+                self.aruco_lost_count = 0
+                
                 self.get_logger().info(f"ArUco 0 detectado en mundo: ({aruco_world_x:.3f}, {aruco_world_y:.3f}), "
                                      f"distancia: {self.aruco_0_distance:.3f}m")
                 break
+        
+        # Actualizar estado de detección
+        if aruco_found:
+            self.aruco_0_detected = True
+        else:
+            # Incrementar contador de pérdida solo si estaba detectado antes
+            if self.aruco_0_detected:
+                self.aruco_lost_count += 1
+                if self.aruco_lost_count >= self.max_aruco_lost_count:
+                    self.aruco_0_detected = False
+                    self.get_logger().warn("ArUco 0 perdido por mucho tiempo")
 
     def robot_pose_callback(self, msg):
         """
@@ -147,7 +165,7 @@ class MainCoordinator(Node):
         Mantiene Y constante y solo varía X para crear una línea recta
         """
         # Distancias de aproximación desde el ArUco (en X)
-        x_offsets = [0.40, 0.25, 0.10]  # 40cm, 25cm, 10cm antes del ArUco
+        x_offsets = [0.5, 0.4, 0.25, 0.10]  # Más puntos intermedios
         
         approach_points = []
         
@@ -185,60 +203,95 @@ class MainCoordinator(Node):
             self.publish_target(1.15, 0.0)
             
         elif self.state == "go_to_pick_up":
-            # Siempre ir hacia la coordenada fija inicial
-            self.publish_target(1.15, 0.0)
+            # Publicar el target continuamente para asegurar que el robot se mueve
+            if not self.aruco_0_detected:
+                self.publish_target(1.15, 0.0)
             
-            # Verificar si detectamos ArUco 0 y estamos suficientemente cerca (50cm)
+            # Verificar si detectamos ArUco 0 y estamos suficientemente cerca
             if self.aruco_0_detected and self.aruco_0_distance is not None:
+                self.get_logger().info(f"ArUco detectado a distancia: {self.aruco_0_distance:.3f}m, threshold: {self.aruco_detection_threshold:.3f}m")
+                
                 if self.aruco_0_distance <= self.aruco_detection_threshold:
                     self.get_logger().info(f"ArUco 0 detectado a {self.aruco_0_distance:.2f}m. Switching to PICK_UP_ORIENTATION")
                     self.state = "pick_up_orientation"
                     self.routine_index = 0
                     self.goal_reached = False
                     self.orientation_started = False
-
+                    # Limpiar variables de aproximación
+                    if hasattr(self, 'approach_points'):
+                        delattr(self, 'approach_points')
 
         elif self.state == "pick_up_orientation":
+            angle = 260.0
+            self.servo_pub.publish(Float32(data=angle))
+
+            # Siempre verificar si tenemos ArUco detectado
             if self.aruco_0_detected and self.aruco_0_position:
                 aruco_x, aruco_y = self.aruco_0_position
                 self.last_aruco_position = (aruco_x, aruco_y)
-
+                
+                # Generar puntos de aproximación 
                 if not hasattr(self, 'approach_points') or not self.approach_points:
                     self.approach_points = self.generate_straight_approach_points(aruco_x, aruco_y)
                     self.current_approach_index = 0
-
+                    self.get_logger().info("Puntos de aproximación generados")
+            
+            # Usar la última posición conocida 
+            elif self.last_aruco_position and not hasattr(self, 'approach_points'):
+                aruco_x, aruco_y = self.last_aruco_position
+                self.approach_points = self.generate_straight_approach_points(aruco_x, aruco_y)
+                self.current_approach_index = 0
+                self.get_logger().info("Usando última posición conocida del ArUco")
+            
+            # Ejecutar aproximación 
             if hasattr(self, 'approach_points') and self.approach_points:
                 # Ejecutar los puntos de aproximación uno por uno
                 if self.current_approach_index < len(self.approach_points):
                     target_x, target_y = self.approach_points[self.current_approach_index]
                     self.publish_target(target_x, target_y)
-
+                    
                     dx = target_x - self.robot_position.x
                     dy = target_y - self.robot_position.y
                     distance = math.hypot(dx, dy)
-
-                    if distance < 0.08:
+                    
+                    self.get_logger().info(f"Aproximándose al punto {self.current_approach_index + 1}/{len(self.approach_points)}, "
+                                         f"distancia restante: {distance:.3f}m")
+                    
+                    if distance < 0.10:  # Tolerancia 
                         self.current_approach_index += 1
+                        self.get_logger().info(f"Punto {self.current_approach_index} alcanzado")
                 else:
                     # Último paso: ir al punto final del ArUco
                     if self.last_aruco_position:
                         aruco_x, aruco_y = self.last_aruco_position
                         self.publish_target(aruco_x, aruco_y)
-
+                        
                         dx = aruco_x - self.robot_position.x
                         dy = aruco_y - self.robot_position.y
                         distance_to_aruco = math.hypot(dx, dy)
-
-                        if distance_to_aruco <= self.aruco_detection_threshold:
-                            self.get_logger().info("Final approach reached. Switching to START_SERVO.")
-                            self.was_close_to_aruco = True
+                        
+                        self.get_logger().info(f"Aproximación final al ArUco, distancia: {distance_to_aruco:.3f}m")
+                        
+                        if distance_to_aruco <= self.pickup_final_distance:
+                            self.get_logger().info("Aproximación final completada. Switching to START_SERVO.")
                             self.previous_state = "pick_up_orientation"
-                            self.approach_points = []
+                            # Limpiar variables
+                            if hasattr(self, 'approach_points'):
+                                delattr(self, 'approach_points')
                             self.state = "start_servo"
             else:
-                self.get_logger().warn("No ArUco position known yet. Waiting...")
-
-
+                self.get_logger().warn("No ArUco position known yet. Esperando detección...")
+                
+                # Si llevamos mucho tiempo sin detección, volver al estado anterior
+                if not hasattr(self, 'no_aruco_count'):
+                    self.no_aruco_count = 0
+                else:
+                    self.no_aruco_count += 1
+                    if self.no_aruco_count > 50:  # ~5 segundos
+                        self.get_logger().warn("Sin detección de ArUco por mucho tiempo. Volviendo a GO_TO_PICK_UP")
+                        self.state = "go_to_pick_up"
+                        if hasattr(self, 'no_aruco_count'):
+                            delattr(self, 'no_aruco_count')
 
         elif self.state == "start_servo":
             if not hasattr(self, 'servo_start_time'):
@@ -269,7 +322,7 @@ class MainCoordinator(Node):
             if not self.dropoff_sent:
                 self.publish_target(-1.05, 0.0)
                 self.dropoff_sent = True
-                self.get_logger().info("Sent drop-off target: (-1.15, 0.0)")
+                self.get_logger().info("Sent drop-off target: (-1.05, 0.0)")
             elif self.goal_reached:
                 self.get_logger().info("Reached drop-off target. Switching to START_SERVO.")
                 self.previous_state = "go_to_drop_off"
@@ -279,19 +332,19 @@ class MainCoordinator(Node):
 
         elif self.state == "go_backwards":
             if not hasattr(self, 'backwards_start_time'):
-                self.get_logger().info("State: GO_BACKWARDS - Moving backwards for 2 seconds")
+                self.get_logger().info("State: GO_BACKWARDS - Moving backwards for 5 seconds")
                 self.backwards_start_time = self.get_clock().now()
                 
-                self.msg.linear.x = -0.075
+                self.msg.linear.x = -0.15
                 self.msg.angular.z = 0.0
                 self.pub.publish(self.msg)
             else:
-                self.msg.linear.x = -0.075
+                self.msg.linear.x = -0.15
                 self.msg.angular.z = 0.0
                 self.pub.publish(self.msg)
                 
                 elapsed_time = (self.get_clock().now() - self.backwards_start_time).nanoseconds / 1e9
-                if elapsed_time > 5.0:
+                if elapsed_time > 3.5:
                     self.msg.linear.x = 0.0
                     self.msg.angular.z = 0.0
                     self.pub.publish(self.msg)
