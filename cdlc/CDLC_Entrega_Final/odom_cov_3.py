@@ -91,8 +91,8 @@ class DeadReckoning(Node):
         
         # Matriz Rk de ruido en la lectura de la cámara. 
         self.Rk = np.array([
-            [1.0, -0.0002376],
-            [-0.0002376, 2.35]
+            [0.056, 0.0],
+            [0.0, 0.0235]
         ])
         
         # Matriz de transformación de 
