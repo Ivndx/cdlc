@@ -14,13 +14,6 @@ class BugZero(Node):
         super().__init__("BugZero_Node")
         self.get_logger().info("Bug Zero: Started!")
         self.create_timer(0.1, self.state_machine)
-<<<<<<< Updated upstream:cdlc/BugZero.py
-        self.pub = self.create_publisher(Twist, "cmd_vel", 1)
-        self.create_subscription(Pose, 'target', self.target_callback,1)
-        self.create_subscription(Odometry, 'ground_truth', self.odom_callback,1)
-        self.create_subscription(LaserScan, '/scan', self.lidar_callback,1)
-
-=======
 
         #Publicadores y suscriptores
         self.pub = self.create_publisher(Twist, "cmd_vel", 1)
@@ -32,7 +25,6 @@ class BugZero(Node):
         self.create_subscription(LaserScan, '/scan', self.lidar_callback, 1)
 
         #Listas vacías para poses (Actual y Objetivo)
->>>>>>> Stashed changes:cdlc/bug_zero.py
         self.current_pose = []
         self.target_pose = []
         #Lista para valores de presencia de objeto en lecturas del LIDAR. 
@@ -52,12 +44,8 @@ class BugZero(Node):
         #Estado inicial
         self.state = "StopRobot"
 
-<<<<<<< Updated upstream:cdlc/BugZero.py
-        self.robot_view = []
-=======
     #Función que, dependiendo las lecturas obtenidas del sensor LIDAR, 
     # se estimaría en que dirección se encuentra un obstáculo.
->>>>>>> Stashed changes:cdlc/bug_zero.py
 
     def lidar_callback(self, data):
         ranges = list(data.ranges)
@@ -84,11 +72,7 @@ class BugZero(Node):
     def normalize_angle(self, angle):
         return math.atan2(math.sin(angle), math.cos(angle))
 
-<<<<<<< Updated upstream:cdlc/BugZero.py
-
-=======
     #Funcion de publicación de velocidades para dirigirse al punto deseado. 
->>>>>>> Stashed changes:cdlc/bug_zero.py
     def go_to_goal(self):
         Ex =  self.target_pose[0] - self.current_pose[0]
         Ey =  self.target_pose[1] - self.current_pose[1]
@@ -96,22 +80,13 @@ class BugZero(Node):
         desired_heading = math.atan2(Ey, Ex)
         heading_error = self.normalize_angle(desired_heading - self.current_pose[2])
 
-<<<<<<< Updated upstream:cdlc/BugZero.py
-        #El movimiento se divide en 2 fases, para minimizar errores. 
-        #Fase 1: Girar hacia el objetivo
-=======
         #Primero, gira sobre su propio eje para alinearse con el punto deseado. 
->>>>>>> Stashed changes:cdlc/bug_zero.py
         if abs(heading_error) > 0.1:
             w = self.k_angular * heading_error
             w = max(min(w, 0.5), -0.5)
             v = 0.0
-<<<<<<< Updated upstream:cdlc/BugZero.py
-            self.move_robot(v,w)
-=======
             self.move_robot(v, w)
         #Segundo, al estar alineado con el punto, se dirige a él directamente. 
->>>>>>> Stashed changes:cdlc/bug_zero.py
         else:
         #Envio de las velocidades para el sistem
             v = self.k_linear * distance_to_target
@@ -126,22 +101,14 @@ class BugZero(Node):
     #Callback que recupera la existencia de un nuevo punto objetivo. 
     def got_New_Target(self):
         return self.target_flag
-<<<<<<< Updated upstream:cdlc/BugZero.py
-    
-=======
 
     #Función que determina si el robot se encuentra en la posición deseada. 
     #Igualmente, al acercarse al objetivo en determinadas distancias, acciona las
     #banderas de "Close_enough" y "Goal_reached", utilizadas por la maquina de estados. 
->>>>>>> Stashed changes:cdlc/bug_zero.py
     def at_Target(self):
         Ex =  self.target_pose[0] - self.current_pose[0]
         Ey =  self.target_pose[1] - self.current_pose[1]
         distance_to_target = math.hypot(Ex, Ey)
-<<<<<<< Updated upstream:cdlc/BugZero.py
-        print('\x1b[2K', end = '\r')
-        print("Distance to target = " + str(distance_to_target), end = '\r')
-=======
 
         print('\x1b[2K', end='\r')
         print("Distance to target = " + str(distance_to_target), end='\r')
@@ -151,7 +118,6 @@ class BugZero(Node):
         else:
             self.close_enough_pub.publish(Bool(data=False))
 
->>>>>>> Stashed changes:cdlc/bug_zero.py
         if distance_to_target < self.tolerance:
             print("\nArrived to Target")
             self.first_time_flag = True
@@ -161,35 +127,21 @@ class BugZero(Node):
         else:
             return False
 
-<<<<<<< Updated upstream:cdlc/BugZero.py
-    
-
-    def target_callback(self,msg):
-=======
     #Callback que obtiene la pose del objetivo recibido. 
     def target_callback(self, msg):
->>>>>>> Stashed changes:cdlc/bug_zero.py
         new_target = [msg.x, msg.y, msg.theta]
         if len(self.target_pose) == 0 or self.target_pose != new_target:
             self.target_pose = new_target
             self.target_flag = True
             print("New target obtained!")
 
-<<<<<<< Updated upstream:cdlc/BugZero.py
-    def move_robot(self,v,w):
-=======
     #Función que publica las velocidades lineales y angulares deseadas al robot. 
     def move_robot(self, v, w):
->>>>>>> Stashed changes:cdlc/bug_zero.py
         self.msg.linear.x = v
         self.msg.angular.z = w
         self.pub.publish(self.msg)
 
-<<<<<<< Updated upstream:cdlc/BugZero.py
-
-=======
     #Callback que obtiene la pose actual del robot. 
->>>>>>> Stashed changes:cdlc/bug_zero.py
     def odom_callback(self, msg):
         x = msg.pose.pose.position.x
         y = msg.pose.pose.position.y
@@ -251,13 +203,9 @@ class BugZero(Node):
             return True
         else:
             return False
-<<<<<<< Updated upstream:cdlc/BugZero.py
-    
-=======
 
     #Funcion que determina si el robot no tiene obstáculos frente a él,
     #igualmente determinado por las lecturas del LIDAR. 
->>>>>>> Stashed changes:cdlc/bug_zero.py
     def isPathAheadCleared(self):
         distances= [self.robot_view.get("front_left"),
                      self.robot_view.get("front"),
@@ -272,9 +220,6 @@ class BugZero(Node):
         else:
             return False
 
-<<<<<<< Updated upstream:cdlc/BugZero.py
-        
-=======
     #Comportamiento de evación de obstáculos y paredes. 
     def follow_wall(self, direction):
         if self.first_time_flag:
@@ -309,19 +254,11 @@ class BugZero(Node):
         v = 0.075 if abs(fw_angle) > 0.1 else 0.075
         w = Kfw * fw_angle
         self.move_robot(v, w)
->>>>>>> Stashed changes:cdlc/bug_zero.py
 
     def state_machine(self):
         #Función de control de la máquina de estados, la cual controla las acciones del robot dependiendo de los estados actuales 
         # y la evaluación de las funciones y condiciones de salto. 
         if len(self.current_pose) > 0:
-<<<<<<< Updated upstream:cdlc/BugZero.py
-            #states
-            if self.state == "StopRobot": self.stop_robot()
-            if self.state == "GoToGoal": self.go_to_goal()
-            if self.state == "FollowWall": self.follow_wall('left')
-            #Changes
-=======
             # Control de las funciones dependiendo de estados. 
             if self.state == "StopRobot": self.stop_robot()
             if self.state == "GoToGoal": self.go_to_goal()
@@ -329,26 +266,16 @@ class BugZero(Node):
             
             #Saltos de estado, dependiendo de la evaluación de condiciones 
             #  y datos de su posición y banderas levantadas. 
->>>>>>> Stashed changes:cdlc/bug_zero.py
             if self.state == "StopRobot" and self.got_New_Target(): self.state = "GoToGoal"
             if self.state == "GoToGoal" and self.at_Target(): self.state = "StopRobot"
             if self.state == "GoToGoal" and self.isObstacleTooClose(): self.state = "FollowWall"
             if self.state == "FollowWall" and self.isPathAheadCleared(): self.state = "GoToGoal"
-<<<<<<< Updated upstream:cdlc/BugZero.py
-            
-=======
->>>>>>> Stashed changes:cdlc/bug_zero.py
 
 
 def main(args=None):
     rclpy.init(args=args)
-<<<<<<< Updated upstream:cdlc/BugZero.py
-    nodeh = BugZero()
-    try: rclpy.spin(nodeh)
-=======
     node = BugZero()
     try: rclpy.spin(node)
->>>>>>> Stashed changes:cdlc/bug_zero.py
     except Exception as error: print(error)
     except KeyboardInterrupt: print("Node stopped by user!")
 

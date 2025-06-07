@@ -8,7 +8,6 @@ from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
 
 
-
 class BugZero(Node):
     def __init__(self):
         super().__init__("BugZero_Node")
@@ -149,12 +148,12 @@ class BugZero(Node):
         _,_,yaw =tf_transformations.euler_from_quaternion(q)
         self.current_pose = [x,y,yaw]
 
-    
+    #Comportamiento de evación de obstáculos y paredes. 
     def follow_wall(self, direction):
         if self.first_time_flag == True: print("Following Wall...")
         self.first_time_flag = False
 
-        #Define P1 (r1, theta1) and P2 (r2, theta2)
+        #Define en que dirección esta el obstaculo.
         if direction == 'left':
             theta2, r2 =  math.radians(45), self.robot_view.get('front_left')
             theta1, r1 =  math.radians(90), self.robot_view.get('left')
@@ -164,28 +163,26 @@ class BugZero(Node):
             theta1, r1 =  math.radians(-90), self.robot_view.get('right')
             print('Wall is on the right')
 
-        #Compute utan = P2 - P1
+        #Calculo de los vectores paralelos y adyacentes entre la pared y el robot.
         P1x, P1y = r1*math.cos(theta1), r1*math.sin(theta1)
         Ux_tan, Uy_tan = r2*math.cos(theta2) - P1x, r2*math.sin(theta2) -P1y
 
-        #Unitary vector
         norm = math.hypot(Ux_tan, Uy_tan)
         Ux_tan_n, Uy_tan_n = Ux_tan/norm, Uy_tan/norm
 
-        #uper and unitary vector
         dot = P1x*Ux_tan_n + P1y * Uy_tan_n
         Ux_per, Uy_per = P1x - dot*Ux_tan_n, P1y - dot*Uy_tan_n
         norm_per = math.hypot(Ux_per, Uy_per)
         Ux_per_n, Uy_per_n = Ux_per/norm_per, Uy_per/norm_per
 
-        #Compute Follow Wall angle
+        #Computo del angulo combinado. 
         dwall, betha, Kfw = 0.30, 0.55, 1.00
         Ex_per, Ey_per = Ux_per - dwall*Ux_per_n, Uy_per - dwall*Uy_per_n
         angle_per = math.atan2(Ey_per, Ex_per)
         angle_tan = math.atan2(Uy_tan_n, Ux_tan_n)
         fw_angle = betha*angle_tan + (1-betha)*angle_per
         fw_angle = math.atan2(math.sin(fw_angle),math.cos(fw_angle))
-        #Move Robot 
+
         v = 0.05 if abs(fw_angle) > 0.1 else 0.2
         w = Kfw * fw_angle
         self.move_robot(v,w)
@@ -219,41 +216,6 @@ class BugZero(Node):
             return True
         else:
             return False
-
-    #Comportamiento de evación de obstáculos y paredes. 
-    def follow_wall(self, direction):
-        if self.first_time_flag:
-            print("Following Wall...")
-        self.first_time_flag = False
-
-        if direction == 'left':
-            theta2, r2 = math.radians(45), self.robot_view.get('front_left')
-            theta1, r1 = math.radians(90), self.robot_view.get('left')
-            print('Wall is on the left')
-        else:
-            theta2, r2 = math.radians(-45), self.robot_view.get('front_right')
-            theta1, r1 = math.radians(-90), self.robot_view.get('right')
-            print('Wall is on the right')
-
-        P1x, P1y = r1 * math.cos(theta1), r1 * math.sin(theta1)
-        Ux_tan, Uy_tan = r2 * math.cos(theta2) - P1x, r2 * math.sin(theta2) - P1y
-        norm = math.hypot(Ux_tan, Uy_tan)
-        Ux_tan_n, Uy_tan_n = Ux_tan / norm, Uy_tan / norm
-        dot = P1x * Ux_tan_n + P1y * Uy_tan_n
-        Ux_per, Uy_per = P1x - dot * Ux_tan_n, P1y - dot * Uy_tan_n
-        norm_per = math.hypot(Ux_per, Uy_per)
-        Ux_per_n, Uy_per_n = Ux_per / norm_per, Uy_per / norm_per
-
-        dwall, betha, Kfw = 0.30, 0.65, 0.55
-        Ex_per, Ey_per = Ux_per - dwall * Ux_per_n, Uy_per - dwall * Uy_per_n
-        angle_per = math.atan2(Ey_per, Ex_per)
-        angle_tan = math.atan2(Uy_tan_n, Ux_tan_n)
-        fw_angle = betha * angle_tan + (1 - betha) * angle_per
-        fw_angle = math.atan2(math.sin(fw_angle), math.cos(fw_angle))
-
-        v = 0.075 if abs(fw_angle) > 0.1 else 0.075
-        w = Kfw * fw_angle
-        self.move_robot(v, w)
 
     def state_machine(self):
         #Función de control de la máquina de estados, la cual controla las acciones del robot dependiendo de los estados actuales 
